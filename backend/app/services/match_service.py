@@ -25,6 +25,7 @@ from app.ai.prompts import build_rerank_messages, build_batch_rerank_messages
 from app.models.job import Job, JobRequirement
 from app.models.match import MatchRecord
 from app.models.resume import Resume, ResumeSkill
+from app.models.application import JobApplication
 from app.services.graph_service import graph_service
 
 
@@ -443,7 +444,7 @@ class MatchService:
     def recommend_resumes_for_job(
         self, job_id: int, db: Session, top_k: int = 10
     ) -> list[dict[str, Any]]:
-        """为企业推荐候选人 (召回→粗排→精排, 并发)"""
+        """为企业推荐候选人 (仅从已投递该职位的求职者中选取: 召回→粗排→精排, 带缓存)"""
         job = db.execute(
             select(Job)
             .options(selectinload(Job.requirements))
@@ -452,16 +453,20 @@ class MatchService:
         if not job:
             raise ValueError("职位不存在")
 
-        # 候选简历 (解析成功, 预加载 skills)
+        # 候选简历: 仅从已投递该职位的求职者中选取 (关联 resume + 预加载 skills)
         resumes = list(db.execute(
             select(Resume)
             .options(selectinload(Resume.skills))
-            .where(Resume.parse_status == 2)
+            .join(JobApplication, JobApplication.resume_id == Resume.id)
+            .where(
+                JobApplication.job_id == job_id,
+                Resume.parse_status == 2,
+            )
         ).scalars())
         if not resumes:
             return []
 
-        # 召回
+        # 召回 (Embedding 相似度, 仅在有向量时启用; 投递量通常较少, 直接全量进入粗排)
         query_vec = self._get_job_embedding(job, db)
         candidates_raw = []
         if query_vec:
@@ -483,9 +488,8 @@ class MatchService:
             coarse_results.append((resume, dims))
         coarse_results.sort(key=lambda x: x[1]["total"], reverse=True)
 
-        # 精排 (并发调用 LLM, Top10)
-        results = self._rerank_resumes_concurrent(job, coarse_results[:10])
-        results = results[:top_k]
+        # 精排 (先查缓存, 未命中才调 LLM)
+        results = self._rerank_resumes_with_cache(job, job_id, coarse_results[:10], db, top_k=top_k)
 
         # 写入记录
         for item in results:
@@ -495,6 +499,67 @@ class MatchService:
         db.commit()
 
         return results
+
+    def _rerank_resumes_with_cache(
+        self,
+        job: Job,
+        job_id: int,
+        candidates: list[tuple[Resume, dict]],
+        db: Session,
+        top_k: int = 10,
+    ) -> list[dict[str, Any]]:
+        """候选人精排 (带缓存): 先查 match_record 近期记录, 命中则复用, 未命中才调 LLM"""
+        if not candidates:
+            return []
+
+        top_candidates = candidates[:RERANK_TOP_N]
+        resume_ids = [r.id for r, _ in top_candidates]
+
+        # 查询近期缓存 (2 小时内的 JOB_TO_RESUME 记录)
+        from datetime import datetime, timedelta
+        cache_threshold = datetime.utcnow() - timedelta(hours=2)
+        cached = db.execute(
+            select(MatchRecord).where(
+                MatchRecord.job_id == job_id,
+                MatchRecord.resume_id.in_(resume_ids),
+                MatchRecord.direction == "JOB_TO_RESUME",
+                MatchRecord.created_at >= cache_threshold,
+            ).order_by(MatchRecord.created_at.desc())
+        ).scalars().all()
+        cache_map: dict[int, MatchRecord] = {}
+        for rec in cached:
+            if rec.resume_id not in cache_map:
+                cache_map[rec.resume_id] = rec
+
+        cached_results: list[dict[str, Any]] = []
+        uncached: list[tuple[Resume, dict]] = []
+        for resume, dims in top_candidates:
+            rec = cache_map.get(resume.id)
+            if rec:
+                cached_results.append({
+                    "resume": resume,
+                    "total_score": rec.total_score,
+                    "skill_score": rec.skill_score or 0,
+                    "exp_score": rec.exp_score or 0,
+                    "edu_score": rec.edu_score or 0,
+                    "city_score": rec.city_score or 0,
+                    "salary_score": rec.salary_score or 0,
+                    "proj_score": rec.proj_score or 0,
+                    "match_reason": rec.match_reason or "AI 精排缓存",
+                })
+            else:
+                uncached.append((resume, dims))
+
+        if cached_results:
+            logger.info(f"候选人精排缓存命中 {len(cached_results)}/{len(top_candidates)}, 调 LLM {len(uncached)} 个")
+
+        # 未命中的调 LLM 精排 (带超时控制)
+        if uncached:
+            llm_results = self._rerank_resumes_concurrent(job, uncached)
+            cached_results.extend(llm_results)
+
+        cached_results.sort(key=lambda x: x["total_score"], reverse=True)
+        return cached_results[:top_k]
 
     def _rerank_resumes_concurrent(
         self, job: Job, candidates: list[tuple[Resume, dict]]
@@ -534,9 +599,26 @@ class MatchService:
 
         results: list[dict[str, Any]] = []
         with ThreadPoolExecutor(max_workers=min(RERANK_MAX_WORKERS, len(candidates))) as ex:
-            futures = [ex.submit(_rerank_one, i) for i in range(len(candidates))]
+            futures = {ex.submit(_rerank_one, i): i for i in range(len(candidates))}
             for f in as_completed(futures):
-                results.append(f.result())
+                try:
+                    # 单候选 LLM 调用最多等 25 秒, 避免无限等待导致前端"一直加载"
+                    results.append(f.result(timeout=25))
+                except Exception as e:
+                    idx = futures[f]
+                    dims = candidates[idx][1]
+                    logger.warning(f"候选人精排超时/失败 idx={idx}: {e}, 使用粗排分数")
+                    results.append({
+                        "resume": candidates[idx][0],
+                        "total_score": round(dims["total"], 2),
+                        "skill_score": dims["skill"],
+                        "exp_score": dims["experience"],
+                        "edu_score": dims["education"],
+                        "city_score": dims["city"],
+                        "salary_score": dims["salary"],
+                        "proj_score": dims["project"],
+                        "match_reason": "AI 精排超时, 使用规则评分",
+                    })
         results.sort(key=lambda x: x["total_score"], reverse=True)
         return results
 

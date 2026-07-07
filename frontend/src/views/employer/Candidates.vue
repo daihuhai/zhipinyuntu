@@ -1,5 +1,5 @@
 <!--
-  候选人推荐 (企业) - 基于 AI 匹配引擎
+  候选人推荐 (企业) - 基于 AI 匹配引擎, 仅从已投递该职位的求职者中选取
 -->
 <template>
   <div class="candidates-page">
@@ -9,9 +9,12 @@
         <el-option v-for="j in jobs" :key="j.id" :label="`${j.title} - ${j.work_city || '不限'}`" :value="j.id" />
       </el-select>
       <el-button type="primary" :icon="Refresh" :loading="loading" @click="fetchRecommend">智能匹配</el-button>
+      <el-tag v-if="jobId" type="info" size="small" class="hint-tag">
+        仅从已投递该职位的候选人中推荐
+      </el-tag>
     </el-card>
 
-    <div v-loading="loading" class="rec-list">
+    <div v-loading="loading" class="rec-list" element-loading-text="AI 正在评估候选人...">
       <el-card v-for="(item, idx) in list" :key="item.resume.id" shadow="hover" class="rec-card">
         <div class="rec-rank">#{{ idx + 1 }}</div>
         <div class="rec-body">
@@ -44,7 +47,10 @@
           </div>
         </div>
       </el-card>
-      <el-empty v-if="!loading && !list.length" description="请先选择职位并点击匹配" />
+      <el-empty v-if="!loading && !list.length && hasFetched" description="该职位暂无投递, 无法推荐候选人">
+        <el-button type="primary" @click="$router.push('/employer/job/list')">返回职位列表</el-button>
+      </el-empty>
+      <el-empty v-if="!loading && !list.length && !hasFetched" description="请先选择职位并点击匹配" />
     </div>
   </div>
 </template>
@@ -52,6 +58,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { Refresh, ChatLineRound } from '@element-plus/icons-vue'
 import { jobApi } from '@/api/job'
 import { matchApi } from '@/api/match'
@@ -61,13 +68,18 @@ const jobs = ref<any[]>([])
 const jobId = ref<number | null>(null)
 const list = ref<any[]>([])
 const loading = ref(false)
+const hasFetched = ref(false)
 
 const fetchJobs = async () => {
-  const res: any = await jobApi.myList()
-  jobs.value = res.data?.items || []
-  if (route.query.job_id) {
-    jobId.value = Number(route.query.job_id)
-    fetchRecommend()
+  try {
+    const res: any = await jobApi.myList()
+    jobs.value = res.data?.items || []
+    if (route.query.job_id) {
+      jobId.value = Number(route.query.job_id)
+      fetchRecommend()
+    }
+  } catch (e: any) {
+    ElMessage.error(e?.message || '职位列表加载失败')
   }
 }
 
@@ -78,6 +90,9 @@ const fetchRecommend = async () => {
   try {
     const res: any = await matchApi.recommendResumes(jobId.value, 10)
     list.value = res.data?.items || []
+    hasFetched.value = true
+  } catch (e: any) {
+    ElMessage.error(e?.message || '候选人推荐失败, 请稍后重试')
   } finally {
     loading.value = false
   }
@@ -104,6 +119,7 @@ onMounted(fetchJobs)
 .filter-card { border-radius: 12px; margin-bottom: 16px; }
 .filter-card :deep(.el-card__body) { display: flex; align-items: center; gap: 12px; padding: 16px; }
 .label { font-weight: 600; }
+.hint-tag { margin-left: 8px; }
 .rec-list { display: flex; flex-direction: column; gap: 12px; }
 .rec-card { border-radius: 10px; }
 .rec-card :deep(.el-card__body) { display: flex; gap: 16px; padding: 16px; }

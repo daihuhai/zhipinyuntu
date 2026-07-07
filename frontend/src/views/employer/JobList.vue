@@ -90,6 +90,9 @@ const fetchList = async () => {
   try {
     const res: any = await jobApi.myList(keyword.value.trim() || undefined)
     list.value = res.data?.items || []
+  } catch (e: any) {
+    ElMessage.error(e?.message || '职位列表加载失败')
+    list.value = []
   } finally {
     loading.value = false
   }
