@@ -15,8 +15,10 @@ export const resumeApi = {
   },
   /** 我的简历列表 */
   list: () => request.get('/resumes'),
-  /** 简历详情 */
+  /** 简历详情 (含工作经历 + 项目经历) */
   detail: (id: number) => request.get(`/resumes/${id}`),
+  /** 获取简历原文件 URL */
+  getFile: (id: number) => request.get(`/resumes/${id}/file`),
   /** 删除简历 */
   remove: (id: number) => request.delete(`/resumes/${id}`),
 }

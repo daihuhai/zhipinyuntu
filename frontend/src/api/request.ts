@@ -26,7 +26,21 @@ request.interceptors.request.use(
 
 // ===== 响应拦截器: 统一处理响应与错误 =====
 request.interceptors.response.use(
-  (response: AxiosResponse) => {
+  async (response: AxiosResponse) => {
+    // blob 响应 (文件下载): 直接返回原始数据; 若后端返回的是 JSON 错误则解析提示
+    if (response.config.responseType === 'blob') {
+      if (response.data instanceof Blob && response.data.type.includes('application/json')) {
+        const text = await response.data.text()
+        try {
+          const err = JSON.parse(text)
+          ElMessage.error(err.message || '导出失败')
+          return Promise.reject(new Error(err.message || '导出失败'))
+        } catch {
+          // 非 JSON, 当作正常文件流
+        }
+      }
+      return response.data
+    }
     const res = response.data
     // 后端统一响应格式: { code, message, data, trace_id }
     if (res.code !== undefined && res.code !== 0) {

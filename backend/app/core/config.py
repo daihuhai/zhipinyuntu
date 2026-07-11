@@ -43,8 +43,8 @@ class Settings(BaseSettings):
     # ===== 豆包 ARK API =====
     ARK_API_KEY: str = ""
     ARK_BASE_URL: str = "https://ark.cn-beijing.volces.com/api/v3"
-    ARK_CHAT_MODEL: str = "doubao-seed-2-0-lite-260428"
-    ARK_EMBEDDING_MODEL: str = "doubao-embedding-text-240715"
+    ARK_CHAT_MODEL: str = "doubao-seed-2-1-pro-260628"
+    ARK_EMBEDDING_MODEL: str = "doubao-embedding-vision-251215"
 
     # ===== Celery =====
     CELERY_BROKER_URL: str = "redis://localhost:6379/1"

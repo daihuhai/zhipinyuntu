@@ -16,6 +16,9 @@ export const applicationApi = {
   /** 某职位的投递记录 (企业) */
   jobList: (jobId: number) =>
     request.get(`/applications/job/${jobId}`),
+  /** 企业全部投递记录 (可选按 job_id 筛选) */
+  employerList: (jobId?: number) =>
+    request.get('/applications/employer', { params: jobId ? { job_id: jobId } : {} }),
   /** 更新投递状态 (企业) */
   updateStatus: (id: number, status: number) =>
     request.post(`/applications/${id}/status`, { status }),

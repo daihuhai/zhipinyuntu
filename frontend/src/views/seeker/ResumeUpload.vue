@@ -213,12 +213,18 @@ const doUpload = async () => {
     // 进入 AI 结构化阶段
     currentStep.value = 2
     progressPercent.value = Math.max(progressPercent.value, 55)
-    // 拉取详情展示
-    const detail: any = await resumeApi.detail(res.data.resume_id)
-    parseResult.value = detail.data
+    // 拉取详情展示 (拦截器返回 {code, message, data}, 取 data 字段)
+    const resumeId = res?.data?.resume_id
+    if (!resumeId) {
+      throw new Error('上传成功但未返回简历ID')
+    }
+    const detail: any = await resumeApi.detail(resumeId)
+    // 创建新对象确保响应式触发, 避免表格不更新
+    const detailData = detail?.data || {}
+    parseResult.value = { ...detailData }
     // 持久化到 sessionStorage, 切页后可恢复
     try {
-      sessionStorage.setItem(CACHE_KEY, JSON.stringify(detail.data))
+      sessionStorage.setItem(CACHE_KEY, JSON.stringify(parseResult.value))
     } catch (e) {
       // 存储满或禁用时静默
     }

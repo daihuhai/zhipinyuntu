@@ -48,20 +48,23 @@
           </el-tag>
         </div>
         <div ref="chatBodyRef" class="chat-body" v-loading="msgLoading">
-          <div
-            v-for="msg in messages"
-            :key="msg.id"
-            class="msg-row"
-            :class="{ mine: msg.sender_id === currentUserId }"
-          >
-            <el-avatar :size="32" class="msg-avatar">
-              {{ (msg.sender_name || '?')[0] }}
-            </el-avatar>
-            <div class="msg-content">
-              <div class="msg-bubble">{{ msg.content }}</div>
-              <div class="msg-time">{{ formatTime(msg.created_at) }}</div>
+          <template v-for="(msg, idx) in messages" :key="msg.id">
+            <!-- 时间分隔线 (微信风格: 相邻消息间隔>3分钟时显示居中时间) -->
+            <div v-if="showTimeDivider(idx)" class="time-divider">
+              <span>{{ formatTime(msg.created_at) }}</span>
             </div>
-          </div>
+            <div
+              class="msg-row"
+              :class="{ mine: msg.sender_id === currentUserId }"
+            >
+              <el-avatar :size="32" class="msg-avatar">
+                {{ (msg.sender_name || '?')[0] }}
+              </el-avatar>
+              <div class="msg-content">
+                <div class="msg-bubble">{{ msg.content }}</div>
+              </div>
+            </div>
+          </template>
           <el-empty v-if="!msgLoading && !messages.length" description="开始对话吧" :image-size="60" />
         </div>
         <div class="chat-input">
@@ -82,7 +85,7 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onMounted, ref } from 'vue'
+import { nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ChatDotRound, Promotion } from '@element-plus/icons-vue'
@@ -91,7 +94,7 @@ import { useUserStore } from '@/stores/user'
 
 const route = useRoute()
 const userStore = useUserStore()
-const currentUserId = userStore.userInfo?.id || 0
+const currentUserId = userStore.userInfo?.user_id || 0
 
 const conversations = ref<any[]>([])
 const convLoading = ref(false)
@@ -114,7 +117,15 @@ const formatTime = (iso?: string) => {
   if (d.toDateString() === now.toDateString()) {
     return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
   }
-  return d.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })
+  return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+
+// 微信风格: 首条消息显示时间, 或与上一条间隔>3分钟时显示居中时间分隔线
+const showTimeDivider = (idx: number) => {
+  if (idx === 0) return true
+  const cur = new Date(messages.value[idx].created_at).getTime()
+  const prev = new Date(messages.value[idx - 1].created_at).getTime()
+  return cur - prev > 3 * 60 * 1000
 }
 
 const fetchConversations = async () => {
@@ -163,12 +174,50 @@ const scrollToBottom = () => {
   }
 }
 
+// ===== 新消息轮询: 停留在会话时定时静默拉取, 对方新消息自动呈现 =====
+const POLL_INTERVAL = 10000
+let pollTimer: ReturnType<typeof setInterval> | null = null
+
+const pollLatest = async () => {
+  if (!activeUserId.value) return
+  try {
+    const res: any = await messageApi.messagesWith(activeUserId.value)
+    const items = res.data?.items || []
+    // 用最后一条消息 id 判断是否有新消息 (比 length 更稳健)
+    const lastId = messages.value[messages.value.length - 1]?.id
+    const newLastId = items[items.length - 1]?.id
+    if (items.length && newLastId !== lastId) {
+      messages.value = items
+      otherInfo.value = res.data?.other
+      await nextTick()
+      scrollToBottom()
+    }
+    // 同步刷新会话列表未读数
+    fetchConversations()
+  } catch {
+    // 轮询失败静默处理, 不打扰用户
+  }
+}
+
+const startPolling = () => {
+  if (pollTimer) return
+  pollTimer = setInterval(pollLatest, POLL_INTERVAL)
+}
+const stopPolling = () => {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
 onMounted(async () => {
   await fetchConversations()
   if (route.query.user_id) {
     selectConv(Number(route.query.user_id))
   }
+  startPolling()
 })
+onUnmounted(stopPolling)
 </script>
 
 <style scoped>
@@ -275,7 +324,16 @@ onMounted(async () => {
   box-shadow: 0 1px 2px rgba(0,0,0,0.08);
 }
 .msg-row.mine .msg-bubble { background: #1677ff; color: #fff; }
-.msg-time { font-size: 11px; color: #999; margin-top: 4px; }
+
+/* 时间分隔线 (微信风格居中) */
+.time-divider {
+  display: flex; align-items: center; justify-content: center;
+  margin: 16px 0 12px;
+}
+.time-divider span {
+  font-size: 11px; color: #999; background: rgba(0,0,0,0.06);
+  padding: 2px 10px; border-radius: 4px;
+}
 
 .chat-input {
   display: flex;

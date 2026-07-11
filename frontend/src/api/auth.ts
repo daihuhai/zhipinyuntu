@@ -40,6 +40,10 @@ export const authApi = {
   register: (data: RegisterParams) => request.post('/auth/register', data),
   logout: () => request.post('/auth/logout'),
   refresh: () => request.post('/auth/refresh'),
+  /** 获取当前用户信息 */
+  me: () => request.get('/auth/me'),
+  /** 修改个人信息 */
+  updateProfile: (data: Record<string, any>) => request.put('/auth/profile', data),
 }
 
 /** 健康检查 (M1 验证用) */

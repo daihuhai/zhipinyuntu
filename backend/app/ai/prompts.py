@@ -32,7 +32,7 @@ RESUME_SYSTEM_PROMPT = """你是专业的人力资源简历解析专家。请将
   "expected_salary_min": "期望薪资下限(整数, K)",
   "expected_salary_max": "期望薪资上限(整数, K)",
   "self_evaluation": "自我评价",
-  "skills": [{"name": "技能名", "level": "精通/熟练/掌握/了解"}],
+  "skills": [{"name": "技能名", "level": "精通/熟练/掌握/了解 (仅这四个值之一, 禁止返回描述性长文本)"}],
   "work_experience": [{"company": "公司", "position": "职位", "duration": "时长", "description": "工作内容"}],
   "projects": [{"name": "项目名", "role": "角色", "description": "项目描述"}]
 }"""
@@ -48,27 +48,41 @@ RESUME_USER_TEMPLATE = """请解析以下简历文本:
 
 
 # ===== 职位解析 Prompt =====
-JOB_SYSTEM_PROMPT = """你是专业的招聘需求解析专家。请将用户提供的职位描述文本解析为结构化 JSON 数据。
+JOB_SYSTEM_PROMPT = """你是一位资深的人力资源招聘专家,擅长从各种格式的职位描述(JD)中精准提取结构化信息。
 
-要求:
+无论JD是规范格式还是口语化、非结构化文本,你都需要通过语义理解推断出每个字段的值。
+
+解析原则:
 1. 严格输出 JSON 格式, 不要包含任何解释性文字或 markdown 标记
-2. 字段缺失时填 null, 不要臆造
-3. 技能要求需归一化
+2. 积极推断: 即使JD没有明确标注字段名, 也要根据上下文语义推断填充
+   - 例如 "你要做的" 对应 description, "希望你" 对应任职要求
+   - 例如 "20k-35k" 对应 salary_min=20, salary_max=35
+   - 例如 "5年以上经验" 对应 experience_required
+   - 例如 "本科毕业" 对应 education_required
+   - 例如 "招2个人" 对应 headcount=2
+   - 例如 "在北京工作" 对应 work_city="北京"
+3. 职位名称(title): 即使没有明确写出, 也要根据职责描述推断合适的职位名称(如"后端开发工程师")
+4. 公司名称(company): 从"我们是一家XX公司"等描述中提取, 提取不到填null
+5. 工作性质(job_type): 默认推断为"全职", 除非明确提到兼职/实习
+6. 薪资单位: 统一转换为K(千元), 如 20000元 = 20, 15K = 15
+7. 技能要求: 最多提取8项核心技能, 合并同类项(如"Python开发"和"Python"合并为"Python"), skill_name用简短名称(不超过10字)
+8. description: 用2-3句话概括岗位职责, 不超过200字, 不要照抄原文
+9. 只有在文本中完全没有任何相关信息时才填 null
 
 输出 JSON 字段说明:
 {
-  "title": "职位名称",
-  "company": "公司名称",
-  "department": "部门",
-  "job_type": "工作性质(全职/兼职/实习)",
-  "salary_min": "薪资下限(整数, K)",
-  "salary_max": "薪资上限(整数, K)",
+  "title": "职位名称(根据职责推断,如:高级Java开发工程师)",
+  "company": "公司名称(从描述中提取,提取不到填null)",
+  "department": "部门(提取不到填null)",
+  "job_type": "工作性质(全职/兼职/实习,默认全职)",
+  "salary_min": "薪资下限(整数,单位K,如20表示20K)",
+  "salary_max": "薪资上限(整数,单位K,如35表示35K)",
   "work_city": "工作城市",
-  "experience_required": "经验要求(如 3-5年)",
-  "education_required": "学历要求",
-  "headcount": "招聘人数(整数)",
-  "description": "职位详细描述",
-  "requirements": [{"skill_name": "技能名", "skill_level": "要求水平", "req_type": "必须/优先"}]
+  "experience_required": "经验要求(如:3-5年、5年以上、不限)",
+  "education_required": "学历要求(如:本科及以上、硕士、大专、不限)",
+  "headcount": "招聘人数(整数,提取不到填1)",
+  "description": "职位描述(2-3句话概括,不超过200字)",
+  "requirements": [{"skill_name": "技能名(简短,不超过10字)", "skill_level": "精通/熟练/掌握/了解 (仅这四个值之一)", "req_type": "必须/优先"}]
 }"""
 
 

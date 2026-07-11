@@ -16,6 +16,15 @@
           <div class="job-salary">{{ formatSalary(job.salary_min, job.salary_max) }}</div>
         </div>
         <div class="head-right">
+          <el-button
+            v-if="isSeeker"
+            :type="favorited ? 'warning' : 'default'"
+            :icon="favorited ? StarFilled : Star"
+            :loading="favoriteLoading"
+            @click="toggleFavorite"
+          >
+            {{ favorited ? '已收藏' : '收藏' }}
+          </el-button>
           <el-button type="success" :icon="Position" :loading="applying" @click="openApplyDialog">立即投递</el-button>
           <el-button :icon="ChatDotRound" @click="contactEmployer">联系企业</el-button>
           <el-button :icon="Position" @click="goRecommend">去推荐职位</el-button>
@@ -70,6 +79,20 @@
       <el-button type="primary" @click="$router.push('/seeker/jobs')">返回职位广场</el-button>
     </el-empty>
 
+    <!-- 岗位能力要求图谱 -->
+    <el-card v-if="job" shadow="never" class="graph-card">
+      <template #header>
+        <div class="card-header">
+          <span>岗位能力要求图谱</span>
+          <el-tag type="info" size="small">力导向图</el-tag>
+        </div>
+      </template>
+      <div v-loading="graphLoading" class="graph-wrap">
+        <div ref="chartRef" id="jobGraphChart" class="job-graph-chart"></div>
+        <el-empty v-if="!graphLoading && graphEmpty" description="暂无能力要求数据" :image-size="80" />
+      </div>
+    </el-card>
+
     <!-- 投递对话框 -->
     <el-dialog v-model="dialogVisible" title="投递简历" width="520px">
       <el-descriptions :column="1" border v-if="job">
@@ -108,17 +131,24 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Position, OfficeBuilding, ChatDotRound } from '@element-plus/icons-vue'
+import * as echarts from 'echarts'
+import { Position, OfficeBuilding, ChatDotRound, Star, StarFilled } from '@element-plus/icons-vue'
 import { jobApi } from '@/api/job'
+import { graphApi } from '@/api/graph'
 import { resumeApi } from '@/api/resume'
 import { applicationApi } from '@/api/application'
+import { useUserStore } from '@/stores/user'
 import { formatSalary } from '@/utils/format'
 
 const route = useRoute()
 const router = useRouter()
+const userStore = useUserStore()
+
+// 当前用户是否为求职者
+const isSeeker = computed(() => userStore.userInfo?.role === 'ROLE_SEEKER')
 
 const job = ref<any>(null)
 const loading = ref(false)
@@ -130,6 +160,16 @@ const coverLetter = ref('')
 const dialogVisible = ref(false)
 const submitting = ref(false)
 const applying = ref(false)
+
+// 收藏相关
+const favorited = ref(false)
+const favoriteLoading = ref(false)
+
+// 能力图谱相关
+const chartRef = ref<HTMLElement>()
+let chartInstance: echarts.ECharts | null = null
+const graphLoading = ref(false)
+const graphEmpty = ref(false)
 
 const fetchDetail = async () => {
   const id = Number(route.params.id)
@@ -151,6 +191,155 @@ const fetchResumes = async () => {
     resumes.value = []
   }
 }
+
+// 检查当前职位是否已收藏 (拉取收藏列表比对)
+const checkFavorite = async () => {
+  if (!isSeeker.value) return
+  const jobId = Number(route.params.id)
+  if (!jobId) return
+  try {
+    const res: any = await jobApi.listFavorites()
+    const items = res.data?.items || res.data || []
+    favorited.value = items.some((it: any) => Number(it.job_id || it.id) === jobId)
+  } catch (e) {
+    // 静默失败
+  }
+}
+
+// 切换收藏状态
+const toggleFavorite = async () => {
+  if (!job.value) return
+  const jobId = job.value.id
+  favoriteLoading.value = true
+  try {
+    if (favorited.value) {
+      await jobApi.removeFavorite(jobId)
+      favorited.value = false
+      ElMessage.success('已取消收藏')
+    } else {
+      await jobApi.addFavorite(jobId)
+      favorited.value = true
+      ElMessage.success('收藏成功')
+    }
+  } catch (e) {
+    // 拦截器已提示
+  } finally {
+    favoriteLoading.value = false
+  }
+}
+
+// 初始化岗位能力图谱
+const initChart = async () => {
+  const jobId = Number(route.params.id)
+  if (!jobId) return
+  graphLoading.value = true
+  graphEmpty.value = false
+  try {
+    const res: any = await graphApi.jobGraph(jobId)
+    const data = res.data?.data || res.data || { nodes: [], edges: [] }
+    const nodes: any[] = data.nodes || []
+    const edges: any[] = data.edges || []
+    if (!nodes.length) {
+      graphEmpty.value = true
+      return
+    }
+    await nextTick()
+    if (!chartRef.value) return
+    if (chartInstance) chartInstance.dispose()
+    chartInstance = echarts.init(chartRef.value)
+
+    // 转换节点: 中心职位节点蓝色大圆, 技能节点按 req_type 着色
+    const colorMust = '#f56c6c' // 必须 - 红
+    const colorOptional = '#e6a23c' // 优先 - 橙
+    const colorJob = '#409eff' // 职位 - 蓝
+
+    const chartNodes = nodes.map((n: any) => {
+      const isJob = n.type === 'Job' || n.type === 'job' || n.labels?.includes('Job')
+      const reqType = String(n.props?.req_type || n.req_type || '')
+      let color = colorJob
+      let symbolSize = 60
+      if (!isJob) {
+        symbolSize = 36
+        if (reqType === '必须' || reqType === 'required' || reqType === '1') {
+          color = colorMust
+        } else if (reqType === '优先' || reqType === 'optional' || reqType === '2') {
+          color = colorOptional
+        } else {
+          color = '#909399'
+        }
+      }
+      return {
+        id: String(n.id),
+        name: n.props?.name || n.name || n.title || String(n.id),
+        symbolSize,
+        itemStyle: { color },
+        category: isJob ? 0 : 1,
+        label: { show: true, position: isJob ? 'inside' : 'right', fontSize: isJob ? 14 : 12 },
+      }
+    })
+
+    const chartEdges = edges.map((e: any) => ({
+      source: String(e.source),
+      target: String(e.target),
+      label: {
+        show: true,
+        formatter: e.label || e.type || 'REQUIRES',
+        fontSize: 10,
+        color: '#999',
+      },
+      lineStyle: { color: '#c0c4cc', curveness: 0.1 },
+    }))
+
+    chartInstance.setOption({
+      tooltip: {
+        formatter: (p: any) => {
+          if (p.dataType === 'node') return p.data.name || p.data.id
+          if (p.dataType === 'edge') return p.data.label?.formatter || 'REQUIRES'
+          return ''
+        },
+      },
+      legend: [
+        {
+          data: ['职位', '技能要求'],
+          top: 0,
+        },
+      ],
+      series: [
+        {
+          type: 'graph',
+          layout: 'force',
+          roam: true,
+          draggable: true,
+          label: { show: true },
+          edgeLabel: { show: true },
+          force: {
+            repulsion: 300,
+            edgeLength: [120, 200],
+            gravity: 0.1,
+          },
+          categories: [
+            { name: '职位' },
+            { name: '技能要求' },
+          ],
+          data: chartNodes,
+          links: chartEdges,
+          lineStyle: { color: '#c0c4cc', width: 1, curveness: 0.1 },
+          emphasis: {
+            focus: 'adjacency',
+            lineStyle: { width: 3 },
+          },
+        },
+      ],
+    })
+  } catch (e) {
+    console.error('图谱加载失败', e)
+    graphEmpty.value = true
+  } finally {
+    graphLoading.value = false
+  }
+}
+
+const handleResize = () => chartInstance?.resize()
 
 const goRecommend = () => {
   // Recommend.vue 不读取 job_id, 直接跳转推荐页让用户选择简历匹配
@@ -216,7 +405,19 @@ const formatDate = (iso?: string) => {
   return new Date(iso).toLocaleString('zh-CN', { hour12: false })
 }
 
-onMounted(fetchDetail)
+onMounted(async () => {
+  await fetchDetail()
+  // 详情加载完成后并行检查收藏状态 + 初始化能力图谱
+  checkFavorite()
+  initChart()
+  window.addEventListener('resize', handleResize)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', handleResize)
+  chartInstance?.dispose()
+  chartInstance = null
+})
 </script>
 
 <style scoped>
@@ -248,4 +449,12 @@ onMounted(fetchDetail)
 .apply-form { margin-top: 16px; }
 .form-label { font-size: 13px; color: var(--text-secondary); margin-bottom: 6px; }
 .empty-tip { font-size: 13px; color: var(--text-secondary); margin-top: 8px; }
+/* 能力图谱卡片 */
+.graph-card { border-radius: 12px; margin-top: 16px; }
+.graph-card .card-header {
+  display: flex; align-items: center; justify-content: space-between;
+  font-weight: 600;
+}
+.graph-wrap { position: relative; min-height: 400px; }
+.job-graph-chart { width: 100%; height: 400px; }
 </style>

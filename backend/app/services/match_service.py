@@ -30,15 +30,15 @@ from app.services.graph_service import graph_service
 
 
 # 学历权重映射 (学历越高分数越高)
-EDU_WEIGHT = {"博士": 5, "硕士": 4, "本科": 3, "大专": 2, "高中": 1, "其他": 0}
+EDU_WEIGHT = {"博士": 5, "硕士": 4, "本科": 3, "大专": 2, "专科": 2, "高中": 1, "其他": 0}
 
 # 技能等级权重
-LEVEL_WEIGHT = {"精通": 1.0, "熟练": 0.8, "掌握": 0.6, "了解": 0.4}
+LEVEL_WEIGHT = {"精通": 1.0, "熟练": 0.8, "掌握": 0.6, "熟悉": 0.5, "了解": 0.4}
 
 # 精排并发数 (豆包 LLM)
 RERANK_MAX_WORKERS = 8
 # 精排候选数 (调用 LLM 的数量, 配合 ARK 并发限流与模型延迟)
-RERANK_TOP_N = 4
+RERANK_TOP_N = 3
 
 
 class MatchService:
@@ -104,18 +104,58 @@ class MatchService:
     def _score_skill(self, resume: Resume, job: Job) -> float:
         """技能匹配度 [0,1]
         - 必须技能命中权重 1.0, 优先技能命中权重 0.7
-        - 候选人技能等级权重 (精通=1.0, 熟练=0.8, 掌握=0.6, 了解=0.4)
+        - 候选人技能等级权重 (精通=1.0, 熟练=0.8, 掌握=0.6, 熟悉=0.5, 了解=0.4)
+        - 支持模糊匹配 (包含关系) 和别名归一化
         """
         reqs: list[JobRequirement] = list(job.requirements)
         if not reqs:
             return 0.5  # 无明确技能要求, 给中等分
         resume_skills = {s.skill_name.lower(): s for s in resume.skills}
+
+        # 技能别名归一化映射
+        alias_map = {
+            "office": ["office办公软件", "office套件", "office", "msoffice", "ms office"],
+            "python": ["python", "python3", "py"],
+            "java": ["java", "java语言", "jdk"],
+            "mysql": ["mysql", "sql", "数据库"],
+            "linux": ["linux", "linux系统", "unix"],
+            "vue": ["vue", "vue.js", "vuejs"],
+            "react": ["react", "react.js", "reactjs"],
+            "docker": ["docker", "容器", "容器化"],
+            "kubernetes": ["kubernetes", "k8s"],
+        }
+        # 反向索引: 小写技能名 -> 标准名
+        normalize_map = {}
+        for std, aliases in alias_map.items():
+            for a in aliases:
+                normalize_map[a] = std
+
+        def normalize(name: str) -> str:
+            n = (name or "").lower().strip()
+            return normalize_map.get(n, n)
+
         total_weight = 0.0
         matched_weight = 0.0
         for req in reqs:
             req_w = req.weight or (1.0 if req.req_type == "必须" else 0.7)
             total_weight += req_w
+            req_std = normalize(req.skill_name)
+
+            # 1. 精确匹配
             rs = resume_skills.get((req.skill_name or "").lower())
+            # 2. 归一化匹配
+            if not rs:
+                for sk_name, sk in resume_skills.items():
+                    if normalize(sk_name) == req_std:
+                        rs = sk
+                        break
+            # 3. 模糊匹配 (包含关系)
+            if not rs:
+                req_lower = (req.skill_name or "").lower()
+                for sk_name, sk in resume_skills.items():
+                    if req_lower in sk_name or sk_name in req_lower:
+                        rs = sk
+                        break
             if rs:
                 level_w = LEVEL_WEIGHT.get(rs.skill_level or "掌握", 0.6)
                 matched_weight += req_w * level_w
@@ -444,7 +484,7 @@ class MatchService:
     def recommend_resumes_for_job(
         self, job_id: int, db: Session, top_k: int = 10
     ) -> list[dict[str, Any]]:
-        """为企业推荐候选人 (仅从已投递该职位的求职者中选取: 召回→粗排→精排, 带缓存)"""
+        """为企业推荐候选人 (优先从已投递者中选取; 无投递时全量搜索, 召回→粗排→精排, 带缓存)"""
         job = db.execute(
             select(Job)
             .options(selectinload(Job.requirements))
@@ -453,7 +493,7 @@ class MatchService:
         if not job:
             raise ValueError("职位不存在")
 
-        # 候选简历: 仅从已投递该职位的求职者中选取 (关联 resume + 预加载 skills)
+        # 候选简历: 优先从已投递该职位的求职者中选取
         resumes = list(db.execute(
             select(Resume)
             .options(selectinload(Resume.skills))
@@ -463,8 +503,31 @@ class MatchService:
                 Resume.parse_status == 2,
             )
         ).scalars())
+
+        # 无投递记录时, 全量搜索已解析简历 (回退策略, 确保企业端始终有推荐结果)
+        if not resumes:
+            resumes = list(db.execute(
+                select(Resume)
+                .options(selectinload(Resume.skills))
+                .where(Resume.parse_status == 2)
+                .order_by(Resume.created_at.desc())
+                .limit(100)
+            ).scalars())
         if not resumes:
             return []
+
+        # 查询这些简历对该职位的投递记录 (用于返回投递状态 + application_id, 供前端更新状态)
+        resume_ids = [r.id for r in resumes]
+        app_rows = db.execute(
+            select(JobApplication.id, JobApplication.resume_id, JobApplication.status).where(
+                JobApplication.job_id == job_id,
+                JobApplication.resume_id.in_(resume_ids),
+            )
+        ).all()
+        # resume_id -> (application_id, application_status)
+        app_map: dict[int, tuple[int | None, int | None]] = {
+            rid: (aid, status) for aid, rid, status in app_rows
+        }
 
         # 召回 (Embedding 相似度, 仅在有向量时启用; 投递量通常较少, 直接全量进入粗排)
         query_vec = self._get_job_embedding(job, db)
@@ -497,6 +560,16 @@ class MatchService:
                 db, item["resume"].id, job_id, item, direction="JOB_TO_RESUME"
             )
         db.commit()
+
+        # 附加投递状态 (application_id + application_status), 供前端展示与更新
+        for item in results:
+            app_info = app_map.get(item["resume"].id)
+            if app_info:
+                item["application_id"] = app_info[0]
+                item["application_status"] = app_info[1]
+            else:
+                item["application_id"] = None
+                item["application_status"] = None
 
         return results
 
@@ -623,12 +696,16 @@ class MatchService:
         return results
 
     def _batch_fill_embeddings(self, objs: list[Any], kind: str, db: Session) -> None:
-        """批量生成缺失的 embedding (一次 API 调用)"""
+        """批量生成缺失的 embedding (一次 API 调用, 带超时保护)"""
         if self._embedding_disabled:
             return
         missing = [o for o in objs if not o.embedding]
         if not missing:
             return
+        # 限制单次批量生成的数量, 避免大量缺失向量导致长时间阻塞
+        if len(missing) > 50:
+            logger.info(f"有 {len(missing)} 条 {kind} 缺失向量, 本次仅生成前 50 条, 其余下次补充")
+            missing = missing[:50]
         try:
             texts = [self._job_summary(o) if kind == "job" else self._resume_summary(o) for o in missing]
             vectors = ark_client.embed(texts)

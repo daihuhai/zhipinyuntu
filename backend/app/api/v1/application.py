@@ -6,6 +6,7 @@
 - POST   /applications/{id}/status  更新投递状态 (企业)
 """
 from typing import Any, Optional
+import json
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
@@ -18,9 +19,55 @@ from app.models.user import SysUser
 from app.models.resume import Resume
 from app.models.job import Job
 from app.models.application import JobApplication
+from app.models.message import Message
 from app.schemas.common import success, fail, BizError
+from app.utils.mask import mask_phone, mask_email
 
 router = APIRouter(prefix="/applications", tags=["投递记录"])
+
+# 投递状态文案
+_STATUS_TEXT = {0: "已投递", 1: "已查看", 2: "面试邀请", 3: "不合适", 4: "已录用"}
+
+
+def _notify_seeker_status_change(
+    db: Session, application: JobApplication, old_status: int, new_status: int, employer: SysUser
+) -> None:
+    """投递状态变更时通知求职者 (通过站内消息)"""
+    # 状态未变化或回到"已投递"时不通知
+    if old_status == new_status or new_status == 0:
+        return
+    try:
+        # 查询简历对应的求职者
+        resume = db.get(Resume, application.resume_id)
+        if not resume:
+            return
+        job = db.get(Job, application.job_id)
+        job_title = job.title if job else f"职位#{application.job_id}"
+        status_text = _STATUS_TEXT.get(new_status, "未知")
+        content = f"您投递的「{job_title}」状态已更新为: {status_text}"
+        msg = Message(
+            sender_id=employer.id,
+            receiver_id=resume.user_id,
+            job_id=application.job_id,
+            content=content,
+            is_read=0,
+        )
+        db.add(msg)
+        db.commit()
+    except Exception:
+        # 通知失败不影响主流程
+        db.rollback()
+
+
+def _parse_resume_extras(raw_json: str | None) -> tuple[list[dict], list[dict]]:
+    """解析简历的 raw_parse_json, 返回 (work_experience, projects)"""
+    if not raw_json:
+        return [], []
+    try:
+        data = json.loads(raw_json)
+        return data.get("work_experience", []) or [], data.get("projects", []) or []
+    except (json.JSONDecodeError, TypeError):
+        return [], []
 
 
 class ApplicationCreateRequest(BaseModel):
@@ -103,20 +150,28 @@ async def create_application(
 async def list_my_applications(
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
+    status: Optional[int] = Query(None, description="按状态筛选 (0=已投递 1=已查看 2=面试邀请 3=不合适 4=已录用)"),
     current_user: SysUser = Depends(require_role("ROLE_SEEKER")),
     db: Session = Depends(get_db),
 ):
-    """查询当前求职者的投递记录 (含职位信息)"""
+    """查询当前求职者的投递记录 (含职位信息, 可按状态筛选)"""
+    # 状态值校验 (status=0 是合法值, 需用 is None 判断)
+    if status is not None and (status < 0 or status > 4):
+        return fail(BizError.VALIDATION_ERROR, "状态值非法 (应为 0-4)")
+
     base_stmt = select(JobApplication, Job).join(
         Job, JobApplication.job_id == Job.id
     ).where(JobApplication.applicant_id == current_user.id)
+    if status is not None:
+        base_stmt = base_stmt.where(JobApplication.status == status)
 
-    # 总数
-    total = db.execute(
-        select(func.count()).select_from(JobApplication).where(
-            JobApplication.applicant_id == current_user.id
-        )
-    ).scalar_one()
+    # 总数 (带上状态过滤条件, 与列表一致)
+    total_stmt = select(func.count()).select_from(JobApplication).where(
+        JobApplication.applicant_id == current_user.id
+    )
+    if status is not None:
+        total_stmt = total_stmt.where(JobApplication.status == status)
+    total = db.execute(total_stmt).scalar_one()
 
     offset = (page - 1) * size
     rows = db.execute(
@@ -182,10 +237,16 @@ async def list_applications_by_job(
     """查询某职位的投递记录 (含完整简历信息 + 匹配分析)"""
     from sqlalchemy.orm import selectinload
 
-    # 校验职位存在
-    job = db.get(Job, job_id)
+    # 校验职位存在 (预加载 requirements, 避免懒加载失败导致匹配度为0)
+    job = db.execute(
+        select(Job).options(selectinload(Job.requirements)).where(Job.id == job_id)
+    ).scalar_one_or_none()
     if job is None:
         return fail(BizError.RESOURCE_NOT_FOUND, "职位不存在")
+
+    # IDOR 防护: 企业仅可查看本企业职位的投递记录 (管理员除外)
+    if current_user.role == "ROLE_EMPLOYER" and job.user_id != current_user.id:
+        return fail(BizError.ROLE_FORBIDDEN, "无权查看非本企业职位的投递记录")
 
     # 预加载简历 + 技能, 避免 N+1 查询
     rows = db.execute(
@@ -207,6 +268,8 @@ async def list_applications_by_job(
         matched = [s for s in req_skills if s in resume_skills]
         missing = [s for s in req_skills if s not in resume_skills]
         match_score = round(len(matched) / len(req_skills) * 100) if req_skills else 0
+        # 工作经历和项目经历
+        work_exp, projects = _parse_resume_extras(resume.raw_parse_json)
 
         items.append({
             **_application_to_dict(app),
@@ -215,15 +278,18 @@ async def list_applications_by_job(
                 "name": resume.name,
                 "gender": resume.gender,
                 "age": resume.age,
-                "phone": resume.phone,
-                "email": resume.email,
+                "phone": mask_phone(resume.phone) if current_user.role == "ROLE_EMPLOYER" else resume.phone,
+                "email": mask_email(resume.email) if current_user.role == "ROLE_EMPLOYER" else resume.email,
                 "education": resume.education,
                 "school": resume.school,
                 "major": resume.major,
                 "work_years": resume.work_years,
                 "current_city": resume.current_city,
                 "self_evaluation": resume.self_evaluation,
+                "doc_url": resume.doc_url,
                 "skills": [{"skill_name": s.skill_name, "skill_level": s.skill_level} for s in resume.skills] if resume.skills else [],
+                "work_experience": work_exp,
+                "projects": projects,
             },
             "match_analysis": {
                 "matched": matched,
@@ -247,10 +313,20 @@ async def batch_update_status(
     if not req.ids:
         return fail(BizError.VALIDATION_ERROR, "ids 不能为空")
     try:
+        # IDOR 防护: 企业仅可操作本企业职位的投递记录 (管理员除外)
+        own_job_ids = set()
+        if current_user.role == "ROLE_EMPLOYER":
+            own_job_ids = set(db.execute(
+                select(Job.id).where(Job.user_id == current_user.id)
+            ).scalars())
+
         updated = 0
         for app_id in req.ids:
             app = db.get(JobApplication, app_id)
             if app is not None:
+                # 跳过非本企业职位的投递记录
+                if current_user.role == "ROLE_EMPLOYER" and app.job_id not in own_job_ids:
+                    continue
                 app.status = req.status
                 updated += 1
         db.commit()
@@ -275,10 +351,19 @@ async def update_application_status(
     if application is None:
         return fail(BizError.RESOURCE_NOT_FOUND, "投递记录不存在")
 
+    # IDOR 防护: 企业仅可操作本企业职位的投递记录 (管理员除外)
+    if current_user.role == "ROLE_EMPLOYER":
+        job = db.get(Job, application.job_id)
+        if not job or job.user_id != current_user.id:
+            return fail(BizError.ROLE_FORBIDDEN, "无权操作非本企业职位的投递记录")
+
     try:
+        old_status = application.status
         application.status = req.status
         db.commit()
         db.refresh(application)
+        # 状态变更时通知求职者 (非"已投递"状态才通知, 避免噪音)
+        _notify_seeker_status_change(db, application, old_status, req.status, current_user)
         return success(
             data={"id": application.id, "status": application.status},
             message="状态更新成功",
@@ -286,6 +371,79 @@ async def update_application_status(
     except Exception as e:
         db.rollback()
         return fail(BizError.SYSTEM_ERROR, f"状态更新失败: {e}")
+
+
+@router.get("/employer", summary="企业全部投递记录", response_model=None)
+async def list_employer_applications(
+    job_id: Optional[int] = Query(None, description="按职位筛选"),
+    current_user: SysUser = Depends(require_role("ROLE_EMPLOYER", "ROLE_ADMIN")),
+    db: Session = Depends(get_db),
+):
+    """查询当前企业所有职位的投递记录 (可选按 job_id 筛选, 含完整简历信息 + 匹配分析)"""
+    from sqlalchemy.orm import selectinload
+
+    # 当前企业的所有职位 (预加载 requirements 关系, 避免懒加载失败导致匹配度为0)
+    jobs = db.execute(
+        select(Job).options(selectinload(Job.requirements)).where(Job.user_id == current_user.id)
+    ).scalars().all()
+    job_ids = [j.id for j in jobs]
+    job_map = {j.id: j for j in jobs}
+
+    if not job_ids:
+        return success(data={"items": [], "total": 0})
+
+    # 构建查询: 投递 → 简历(含技能)
+    stmt = (
+        select(JobApplication, Resume)
+        .join(Resume, JobApplication.resume_id == Resume.id)
+        .options(selectinload(Resume.skills))
+        .where(JobApplication.job_id.in_(job_ids))
+    )
+    if job_id:
+        stmt = stmt.where(JobApplication.job_id == job_id)
+
+    rows = db.execute(stmt.order_by(JobApplication.created_at.desc())).all()
+
+    items = []
+    for app, resume in rows:
+        job = job_map.get(app.job_id)
+        req_skills = [r.skill_name for r in job.requirements] if job and job.requirements else []
+        resume_skills = [s.skill_name for s in resume.skills] if resume.skills else []
+        matched = [s for s in req_skills if s in resume_skills]
+        missing = [s for s in req_skills if s not in resume_skills]
+        match_score = round(len(matched) / len(req_skills) * 100) if req_skills else 0
+        # 工作经历和项目经历
+        work_exp, projects = _parse_resume_extras(resume.raw_parse_json)
+
+        items.append({
+            **_application_to_dict(app),
+            "job_title": job.title if job else None,
+            "resume": {
+                "id": resume.id,
+                "name": resume.name,
+                "gender": resume.gender,
+                "age": resume.age,
+                "phone": mask_phone(resume.phone) if current_user.role == "ROLE_EMPLOYER" else resume.phone,
+                "email": mask_email(resume.email) if current_user.role == "ROLE_EMPLOYER" else resume.email,
+                "education": resume.education,
+                "school": resume.school,
+                "major": resume.major,
+                "work_years": resume.work_years,
+                "current_city": resume.current_city,
+                "self_evaluation": resume.self_evaluation,
+                "doc_url": resume.doc_url,
+                "skills": [{"skill_name": s.skill_name, "skill_level": s.skill_level} for s in resume.skills] if resume.skills else [],
+                "work_experience": work_exp,
+                "projects": projects,
+            },
+            "match_analysis": {
+                "matched": matched,
+                "missing": missing,
+                "match_score": match_score,
+                "total_required": len(req_skills),
+            },
+        })
+    return success(data={"items": items, "total": len(items)})
 
 
 @router.get("/employer/summary", summary="企业投递统计", response_model=None)

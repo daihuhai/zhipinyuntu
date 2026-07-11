@@ -12,7 +12,30 @@
       <el-button :icon="Document" @click="$router.push('/seeker/applications')">投递记录</el-button>
     </el-card>
 
-    <div v-loading="loading" class="rec-list">
+    <div class="rec-list">
+      <!-- AI 匹配中动画 -->
+      <div v-if="loading" class="matching-animation">
+        <div class="match-pulse">
+          <div class="pulse-ring"></div>
+          <div class="pulse-ring delay"></div>
+          <el-icon :size="36" color="#1677ff"><MagicStick /></el-icon>
+        </div>
+        <div class="match-title">AI 智能匹配中</div>
+        <div class="match-sub">{{ emptyText }}</div>
+        <div class="match-steps">
+          <div class="step-dot"><span class="dot active"></span><span>召回候选职位</span></div>
+          <div class="step-line active"></div>
+          <div class="step-dot"><span class="dot active"></span><span>多维特征粗排</span></div>
+          <div class="step-line active"></div>
+          <div class="step-dot"><span class="dot rotating"></span><span>大模型精排</span></div>
+        </div>
+        <div class="match-bar-wrap">
+          <div class="match-bar"></div>
+        </div>
+        <div class="match-hint">正在调用豆包大模型进行深度评估, 约 10-30 秒</div>
+      </div>
+
+      <template v-else>
       <el-card v-for="(item, idx) in list" :key="item.job.id" shadow="hover" class="rec-card">
         <div class="rec-rank">#{{ idx + 1 }}</div>
         <div class="rec-body">
@@ -54,7 +77,8 @@
           </div>
         </div>
       </el-card>
-      <el-empty v-if="!loading && !list.length" :description="emptyText" />
+      <el-empty v-if="!list.length" :description="emptyText" />
+      </template>
     </div>
 
     <!-- 投递对话框 -->
@@ -84,7 +108,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Refresh, ChatLineRound, Position, Document } from '@element-plus/icons-vue'
+import { Refresh, ChatLineRound, Position, Document, MagicStick } from '@element-plus/icons-vue'
 import { resumeApi } from '@/api/resume'
 import { matchApi } from '@/api/match'
 import { applicationApi } from '@/api/application'
@@ -251,6 +275,62 @@ onMounted(fetchResumes)
 .filter-card :deep(.el-card__body) { display: flex; align-items: center; gap: 12px; padding: 16px; width: 100%; }
 .label { font-weight: 600; color: var(--text-primary); }
 .rec-list { display: flex; flex-direction: column; gap: 12px; }
+
+/* ===== AI 匹配动画 ===== */
+.matching-animation {
+  display: flex; flex-direction: column; align-items: center;
+  padding: 60px 20px; background: #fff; border-radius: 12px;
+}
+.match-pulse {
+  position: relative; width: 80px; height: 80px;
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 20px;
+}
+.pulse-ring {
+  position: absolute; inset: 0; border-radius: 50%;
+  border: 2px solid #1677ff; opacity: 0;
+  animation: pulse 1.8s ease-out infinite;
+}
+.pulse-ring.delay { animation-delay: 0.6s; }
+@keyframes pulse {
+  0% { transform: scale(0.6); opacity: 0.8; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+.match-title { font-size: 18px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px; }
+.match-sub { font-size: 13px; color: var(--text-secondary); margin-bottom: 28px; text-align: center; }
+.match-steps {
+  display: flex; align-items: center; gap: 4px; margin-bottom: 24px;
+}
+.step-dot { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.step-dot span:last-child { font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
+.dot {
+  width: 10px; height: 10px; border-radius: 50%; background: #d9d9d9;
+}
+.dot.active { background: #1677ff; box-shadow: 0 0 8px rgba(22,119,255,0.5); }
+.dot.rotating { background: #1677ff; animation: dotPulse 1s ease-in-out infinite; }
+@keyframes dotPulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.4); opacity: 0.6; }
+}
+.step-line {
+  width: 40px; height: 2px; background: #d9d9d9; margin-bottom: 18px;
+}
+.step-line.active { background: #1677ff; }
+.match-bar-wrap {
+  width: 280px; height: 4px; background: #f0f0f0; border-radius: 2px; overflow: hidden;
+  margin-bottom: 12px;
+}
+.match-bar {
+  height: 100%; width: 40%; border-radius: 2px;
+  background: linear-gradient(90deg, #1677ff, #4096ff);
+  animation: barSlide 1.5s ease-in-out infinite;
+}
+@keyframes barSlide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}
+.match-hint { font-size: 12px; color: var(--text-secondary); }
+
 .rec-card { border-radius: 10px; }
 .rec-card :deep(.el-card__body) { display: flex; gap: 16px; padding: 16px; }
 .rec-rank {

@@ -54,19 +54,23 @@
 
     <div v-loading="loading" class="job-grid">
       <el-card v-for="job in list" :key="job.id" shadow="hover" class="job-card" @click="goDetail(job.id)">
-        <div class="job-header">
-          <div class="job-title">{{ job.title }}</div>
-          <div class="job-salary">{{ formatSalary(job.salary_min, job.salary_max) }}</div>
-        </div>
-        <div class="job-company">{{ job.company || '匿名企业' }} · {{ job.work_city || '不限' }}</div>
-        <div class="job-meta">
-          <el-tag size="small" type="info">{{ job.experience_required || '经验不限' }}</el-tag>
-          <el-tag size="small" type="info">{{ job.education_required || '学历不限' }}</el-tag>
-          <el-tag size="small" type="info">{{ job.job_type || '全职' }}</el-tag>
-        </div>
-        <div class="job-desc">{{ job.description?.slice(0, 100) }}{{ job.description?.length > 100 ? '...' : '' }}</div>
-        <div class="job-footer">
-          <el-button link type="primary" @click.stop="goDetail(job.id)">查看详情 →</el-button>
+        <div class="job-card-inner">
+          <div class="job-top">
+            <div class="job-header">
+              <div class="job-title">{{ job.title }}</div>
+              <div class="job-salary">{{ formatSalary(job.salary_min, job.salary_max) }}</div>
+            </div>
+            <div class="job-company">{{ job.company || '匿名企业' }} · {{ job.work_city || '不限' }}</div>
+            <div class="job-meta">
+              <el-tag size="small" type="info">{{ job.experience_required || '经验不限' }}</el-tag>
+              <el-tag size="small" type="info">{{ job.education_required || '学历不限' }}</el-tag>
+              <el-tag size="small" type="info">{{ job.job_type || '全职' }}</el-tag>
+            </div>
+            <div class="job-desc">{{ job.description?.slice(0, 100) }}{{ job.description?.length > 100 ? '...' : '' }}</div>
+          </div>
+          <div class="job-footer">
+            <el-button link type="primary" @click.stop="goDetail(job.id)">查看详情 →</el-button>
+          </div>
         </div>
       </el-card>
       <el-empty v-if="!loading && !list.length" description="暂无符合条件的职位, 试试调整筛选条件" />
@@ -180,11 +184,14 @@ onMounted(fetchList)
 .job-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
 .job-card { border-radius: 10px; cursor: pointer; transition: transform 0.2s; }
 .job-card:hover { transform: translateY(-2px); }
+.job-card :deep(.el-card__body) { padding: 16px; height: 100%; }
+.job-card-inner { display: flex; flex-direction: column; height: 100%; min-height: 220px; }
+.job-top { flex: 1; }
 .job-header { display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px; }
 .job-title { font-size: 16px; font-weight: 600; color: var(--text-primary); }
 .job-salary { font-size: 16px; font-weight: 700; color: #ff6b35; }
 .job-company { color: var(--text-secondary); font-size: 13px; margin-bottom: 10px; }
 .job-meta { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
 .job-desc { font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
-.job-footer { margin-top: 10px; display: flex; justify-content: flex-end; }
+.job-footer { margin-top: 12px; padding-top: 10px; border-top: 1px solid #f5f5f5; display: flex; justify-content: flex-end; }
 </style>

@@ -17,6 +17,9 @@
             <el-button :icon="Search" plain @click="$router.push('/seeker/jobs')">
               浏览职位广场
             </el-button>
+            <el-button :icon="Star" plain @click="$router.push('/seeker/favorites')">
+              我的收藏
+            </el-button>
           </div>
         </div>
         <el-icon class="hero-icon"><DataAnalysis /></el-icon>

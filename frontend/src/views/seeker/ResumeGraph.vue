@@ -240,11 +240,12 @@ const fetchGraph = async () => {
     const rawNodes = res.data?.nodes || []
     const rawEdges = res.data?.edges || []
 
-    // 提取技能节点
+    // 提取技能节点和分类节点
     const skillNodes = rawNodes.filter((n: any) => n.type === 'Skill')
+    const categoryNodes = rawNodes.filter((n: any) => n.type === 'Category')
     allSkills.value = skillNodes.map((n: any) => ({ name: n.label, level: n.properties?.level || '掌握' }))
 
-    // 构建图谱节点 (求职者在中心, 技能环绕)
+    // 构建图谱节点 (求职者在中心, 分类节点中层, 技能节点外层)
     const personNode = rawNodes.find((n: any) => n.type === 'Person')
     const personName = personNode?.label || '求职者'
 
@@ -258,12 +259,32 @@ const fetchGraph = async () => {
         label: { show: true, color: '#fff', fontSize: 15, fontWeight: 'bold' },
       },
     ]
+
+    // 分类节点 (中层)
+    categoryNodes.forEach((c: any) => {
+      graphNodes.push({
+        id: c.id,
+        name: c.label,
+        category: 1,
+        symbolSize: 55,
+        itemStyle: {
+          color: '#40a9ff',
+          shadowBlur: 20,
+          shadowColor: 'rgba(64,169,255,0.6)',
+          borderColor: '#91d5ff',
+          borderWidth: 2,
+        },
+        label: { show: true, color: '#e0f0ff', fontSize: 13, fontWeight: 'bold' },
+      })
+    })
+
+    // 技能节点 (外层)
     skillNodes.forEach((s: any) => {
       graphNodes.push({
         id: s.id,
         name: s.label,
-        category: 1,
-        symbolSize: 52,
+        category: 2,
+        symbolSize: 48,
         itemStyle: {
           color: '#95de64',
           shadowBlur: 28,
@@ -275,12 +296,23 @@ const fetchGraph = async () => {
       })
     })
 
-    // 边: 求职者 -> 技能
-    const graphEdges: any[] = skillNodes.map((s: any) => ({
-      source: 'person',
-      target: s.id,
-      lineStyle: { color: 'rgba(167,139,250,0.4)', width: 2, curveness: 0.1 },
-    }))
+    // 边: 求职者 -> 分类 -> 技能
+    const graphEdges: any[] = []
+    rawEdges.forEach((e: any) => {
+      if (e.label === 'HAS_CATEGORY') {
+        graphEdges.push({
+          source: 'person',
+          target: e.target,
+          lineStyle: { color: 'rgba(64,169,255,0.5)', width: 2.5, curveness: 0.1 },
+        })
+      } else if (e.label === 'INCLUDES') {
+        graphEdges.push({
+          source: e.source,
+          target: e.target,
+          lineStyle: { color: 'rgba(149,222,100,0.4)', width: 1.5, curveness: 0.1 },
+        })
+      }
+    })
 
     // 如果选了岗位, 添加岗位节点和匹配边
     if (jobId.value) {
@@ -424,32 +456,86 @@ const renderRadar = () => {
   if (radarChart) radarChart.dispose()
   radarChart = echarts.init(radarRef.value, 'dark')
 
-  // 取前 6 个技能做雷达
-  const skills = allSkills.value.slice(0, 6)
+  // 合并技能维度: 我的技能 + 岗位要求技能 (去重)
   const levelMap: Record<string, number> = { '了解': 40, '掌握': 60, '熟练': 80, '精通': 100 }
-  const values = skills.map(s => levelMap[s.level] || 60)
-  // 补齐 6 个
-  while (values.length < 6) values.push(0)
-  while (skills.length < 6) skills.push({ name: '-', level: '' })
+  const reqLevelMap: Record<string, number> = { '必须': 100, '优先': 75 }
+
+  // 我的技能维度
+  const mySkillNames = allSkills.value.map(s => s.name)
+  // 岗位要求技能维度
+  const reqSkillNames = jobId.value
+    ? matchedSkills.value.concat(missingSkills.value)
+    : []
+
+  // 合并维度 (保持顺序, 最多 6 个, 减少拥挤)
+  const allDims: string[] = []
+  mySkillNames.forEach(n => { if (!allDims.includes(n)) allDims.push(n) })
+  reqSkillNames.forEach(n => { if (!allDims.includes(n)) allDims.push(n) })
+  const dims = allDims.slice(0, 6)
+
+  // 我的技能值
+  const myValues = dims.map(name => {
+    const sk = allSkills.value.find(s => s.name === name)
+    return sk ? (levelMap[sk.level] || 60) : 0
+  })
+
+  const series: any[] = [{
+    value: myValues,
+    name: '我的能力',
+    areaStyle: { color: 'rgba(167,139,250,0.3)' },
+    lineStyle: { color: '#a78bfa', width: 2 },
+    itemStyle: { color: '#a78bfa' },
+  }]
+
+  // 岗位要求值 (选中岗位时叠加)
+  if (jobId.value && reqSkillNames.length) {
+    const reqValues = dims.map(name => {
+      // 从岗位要求中查找
+      if (matchedSkills.value.includes(name) || missingSkills.value.includes(name)) {
+        // 缺失技能求职者为0, 但岗位要求有值
+        return 90
+      }
+      return 0
+    })
+    series.push({
+      value: reqValues,
+      name: '岗位要求',
+      areaStyle: { color: 'rgba(255,107,53,0.15)' },
+      lineStyle: { color: '#ff6b35', width: 2, type: 'dashed' },
+      itemStyle: { color: '#ff6b35' },
+    })
+  }
+
+  // 补齐维度到至少 3 个
+  while (dims.length < 3) {
+    dims.push('-')
+    series.forEach(s => s.value.push(0))
+  }
 
   radarChart.setOption({
     backgroundColor: 'transparent',
+    legend: jobId.value && reqSkillNames.length ? {
+      data: ['我的能力', '岗位要求'],
+      textStyle: { color: '#e0e7ff', fontSize: 12, fontWeight: 500 },
+      top: 8, right: 8, itemGap: 20,
+      icon: 'roundRect',
+      itemWidth: 14,
+      itemHeight: 10,
+    } : { show: false },
     radar: {
-      indicator: skills.map(s => ({ name: s.name, max: 100 })),
+      indicator: dims.map(name => ({ name, max: 100 })),
       shape: 'polygon',
-      axisName: { color: '#c4b5fd', fontSize: 11 },
-      splitArea: { areaStyle: { color: ['rgba(167,139,250,0.05)', 'rgba(167,139,250,0.1)'] } },
-      splitLine: { lineStyle: { color: 'rgba(167,139,250,0.2)' } },
-      axisLine: { lineStyle: { color: 'rgba(167,139,250,0.2)' } },
+      radius: '65%',
+      center: ['50%', '55%'],
+      axisName: { color: '#e0e7ff', fontSize: 12, fontWeight: 500 },
+      splitArea: { areaStyle: { color: ['rgba(167,139,250,0.03)', 'rgba(167,139,250,0.08)'] } },
+      splitLine: { lineStyle: { color: 'rgba(167,139,250,0.15)' } },
+      axisLine: { lineStyle: { color: 'rgba(167,139,250,0.15)' } },
     },
     series: [{
       type: 'radar',
-      data: [{
-        value: values,
-        areaStyle: { color: 'rgba(167,139,250,0.3)' },
-        lineStyle: { color: '#a78bfa', width: 2 },
-        itemStyle: { color: '#a78bfa' },
-      }],
+      data: series,
+      symbolSize: 6,
     }],
   })
 }
@@ -508,14 +594,14 @@ watch(jobId, () => {
   background: rgba(255,255,255,0.06);
   color: #94a3b8; font-size: 12px;
 }
-.status-pill.active { color: #52c41a; }
+.status-pill.active { color: #2d8a1a; }
 .status-pill .dot {
   width: 6px; height: 6px; border-radius: 50%;
   background: #64748b;
 }
 .status-pill.active .dot {
-  background: #52c41a;
-  box-shadow: 0 0 8px #52c41a;
+  background: #2d8a1a;
+  box-shadow: 0 0 8px #2d8a1a;
   animation: pulse-dot 1.5s ease-in-out infinite;
 }
 @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:0.5} }

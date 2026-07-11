@@ -8,7 +8,7 @@
 """
 from typing import Any
 
-from sqlalchemy import select, func, desc
+from sqlalchemy import select, func, desc, delete, update
 from sqlalchemy.orm import Session
 from loguru import logger
 
@@ -61,6 +61,42 @@ class AdminService:
             raise ValueError("用户不存在")
         return self._user_dict(u)
 
+    def get_user_detail(self, user_id: int, db: Session) -> dict[str, Any]:
+        """用户详情 + 关联统计"""
+        from app.models.application import JobApplication
+        u = db.get(SysUser, user_id)
+        if not u:
+            raise ValueError("用户不存在")
+        info = self._user_dict(u)
+        stats: dict[str, Any] = {}
+        if u.role == "ROLE_SEEKER":
+            stats["resume_count"] = db.execute(
+                select(func.count(Resume.id)).where(Resume.user_id == user_id)
+            ).scalar() or 0
+            stats["application_count"] = db.execute(
+                select(func.count(JobApplication.id)).where(JobApplication.applicant_id == user_id)
+            ).scalar() or 0
+        elif u.role == "ROLE_EMPLOYER":
+            job_ids_rows = db.execute(
+                select(Job.id).where(Job.user_id == user_id)
+            ).all()
+            job_ids = [r[0] for r in job_ids_rows]
+            stats["job_count"] = len(job_ids)
+            if job_ids:
+                stats["received_count"] = db.execute(
+                    select(func.count(JobApplication.id)).where(
+                        JobApplication.job_id.in_(job_ids)
+                    )
+                ).scalar() or 0
+            else:
+                stats["received_count"] = 0
+        else:
+            stats["resume_count"] = 0
+            stats["application_count"] = 0
+            stats["job_count"] = 0
+            stats["received_count"] = 0
+        return {"user": info, "stats": stats}
+
     def update_user_status(self, user_id: int, new_status: int, db: Session) -> None:
         u = db.get(SysUser, user_id)
         if not u:
@@ -69,6 +105,20 @@ class AdminService:
             raise ValueError("不可修改管理员状态")
         u.status = new_status
         db.commit()
+
+    def batch_update_user_status(self, user_ids: list[int], status: int, db: Session) -> int:
+        """批量更新用户状态 (跳过管理员), 返回更新数量"""
+        if not user_ids:
+            return 0
+        if status not in (0, 1):
+            raise ValueError("状态非法")
+        result = db.execute(
+            update(SysUser)
+            .where(SysUser.id.in_(user_ids), SysUser.role != "ROLE_ADMIN")
+            .values(status=status)
+        )
+        db.commit()
+        return result.rowcount or 0
 
     def update_user_role(self, user_id: int, new_role: str, db: Session) -> None:
         u = db.get(SysUser, user_id)
@@ -142,6 +192,16 @@ class AdminService:
         db.delete(r)
         db.commit()
 
+    def batch_delete_resumes(self, resume_ids: list[int], db: Session) -> int:
+        """批量删除简历, 返回删除数量"""
+        if not resume_ids:
+            return 0
+        result = db.execute(
+            delete(Resume).where(Resume.id.in_(resume_ids))
+        )
+        db.commit()
+        return result.rowcount or 0
+
     def _resume_dict(self, r: Resume) -> dict[str, Any]:
         return {
             "id": r.id,
@@ -195,6 +255,18 @@ class AdminService:
             raise ValueError("状态非法")
         j.status = new_status
         db.commit()
+
+    def batch_update_job_status(self, job_ids: list[int], status: int, db: Session) -> int:
+        """批量更新职位状态, 返回更新数量"""
+        if not job_ids:
+            return 0
+        if status not in (0, 1, 2):
+            raise ValueError("状态非法")
+        result = db.execute(
+            update(Job).where(Job.id.in_(job_ids)).values(status=status)
+        )
+        db.commit()
+        return result.rowcount or 0
 
     def delete_job(self, job_id: int, db: Session) -> None:
         j = db.get(Job, job_id)
@@ -345,6 +417,258 @@ class AdminService:
             },
             "recent_users": [self._user_dict(u) for u in recent_users],
             "recent_jobs": [self._job_dict(j) for j in recent_jobs],
+        }
+
+    def get_dashboard_trend(self, db: Session) -> dict[str, Any]:
+        """仪表盘图表数据: 用户增长趋势 + 简历状态分布 + 职位状态分布 + 热门技能 Top10"""
+        from datetime import datetime, timedelta
+        from app.models.resume import ResumeSkill
+        from app.models.job import JobRequirement
+
+        # 1. 用户增长趋势 (近 14 天)
+        today = datetime.utcnow().date()
+        days = [(today - timedelta(days=i)) for i in range(13, -1, -1)]
+        day_labels = [d.strftime("%m-%d") for d in days]
+        day_counts = {d.strftime("%Y-%m-%d"): 0 for d in days}
+        users = list(db.execute(select(SysUser.created_at)).all())
+        for (ts,) in users:
+            if ts:
+                key = ts.strftime("%Y-%m-%d")
+                if key in day_counts:
+                    day_counts[key] += 1
+        # 累计增长
+        cumulative = []
+        running = 0
+        for d in days:
+            running += day_counts[d.strftime("%Y-%m-%d")]
+            cumulative.append(running)
+
+        # 2. 简历解析状态分布
+        resume_status_rows = db.execute(
+            select(Resume.parse_status, func.count(Resume.id)).group_by(Resume.parse_status)
+        ).all()
+        resume_status = {"0": 0, "1": 0, "2": 0, "3": 0}
+        status_names = {"0": "待解析", "1": "解析中", "2": "成功", "3": "失败"}
+        for status, cnt in resume_status_rows:
+            resume_status[str(status)] = cnt
+
+        # 3. 职位状态分布
+        job_status_rows = db.execute(
+            select(Job.status, func.count(Job.id)).group_by(Job.status)
+        ).all()
+        job_status = {"0": 0, "1": 0, "2": 0}
+        job_status_names = {"0": "草稿", "1": "招聘中", "2": "已下架"}
+        for status, cnt in job_status_rows:
+            job_status[str(status)] = cnt
+
+        # 4. 热门技能 Top10 (简历技能出现频次)
+        hot_skills_rows = db.execute(
+            select(ResumeSkill.skill_name, func.count(ResumeSkill.id).label("cnt"))
+            .group_by(ResumeSkill.skill_name)
+            .order_by(desc("cnt"))
+            .limit(10)
+        ).all()
+        hot_skills = [{"name": name, "count": cnt} for name, cnt in hot_skills_rows]
+
+        return {
+            "user_growth": {
+                "days": day_labels,
+                "daily": [day_counts[d.strftime("%Y-%m-%d")] for d in days],
+                "cumulative": cumulative,
+            },
+            "resume_status": {
+                "names": [status_names[k] for k in ["0", "1", "2", "3"]],
+                "values": [resume_status[k] for k in ["0", "1", "2", "3"]],
+            },
+            "job_status": {
+                "names": [job_status_names[k] for k in ["0", "1", "2"]],
+                "values": [job_status[k] for k in ["0", "1", "2"]],
+            },
+            "hot_skills": hot_skills,
+        }
+
+    # ===== 大数据中心扩展接口 =====
+    def get_dashboard_overview(self, db: Session) -> dict[str, Any]:
+        """大数据中心总览: 6 KPI + 环比 + 3 Gauge"""
+        from datetime import datetime, timedelta
+        from app.models.application import JobApplication
+
+        today = datetime.utcnow().date()
+        yesterday = today - timedelta(days=1)
+
+        def _count_since(model, date_field, target_date):
+            """统计 target_date 当天 00:00 ~ 次日 00:00 的记录数"""
+            start = datetime.combine(target_date, datetime.min.time())
+            end = start + timedelta(days=1)
+            return db.execute(
+                select(func.count(model.id)).where(
+                    date_field >= start, date_field < end
+                )
+            ).scalar() or 0
+
+        def _count_before(model, date_field, target_date):
+            """统计 target_date 之前(不含)的累计记录数"""
+            start = datetime.combine(target_date, datetime.min.time())
+            return db.execute(
+                select(func.count(model.id)).where(date_field < start)
+            ).scalar() or 0
+
+        # KPI 总量
+        total_users = db.execute(select(func.count(SysUser.id))).scalar() or 0
+        total_resumes = db.execute(select(func.count(Resume.id))).scalar() or 0
+        total_jobs = db.execute(select(func.count(Job.id))).scalar() or 0
+        total_apps = db.execute(select(func.count(JobApplication.id))).scalar() or 0
+        total_matches = db.execute(select(func.count(MatchRecord.id))).scalar() or 0
+        avg_score = db.execute(select(func.avg(MatchRecord.total_score))).scalar() or 0.0
+
+        # 昨日新增 (环比)
+        y_users = _count_since(SysUser, SysUser.created_at, yesterday)
+        y_resumes = _count_since(Resume, Resume.created_at, yesterday)
+        y_jobs = _count_since(Job, Job.created_at, yesterday)
+        y_apps = _count_since(JobApplication, JobApplication.created_at, yesterday)
+        y_matches = _count_since(MatchRecord, MatchRecord.created_at, yesterday)
+
+        # 上周平均匹配分 (环比)
+        week_ago = today - timedelta(days=7)
+        week_start = datetime.combine(week_ago, datetime.min.time())
+        last_week_avg = db.execute(
+            select(func.avg(MatchRecord.total_score)).where(
+                MatchRecord.created_at < week_start
+            )
+        ).scalar() or float(avg_score)
+
+        def _pct(cur, prev):
+            if prev == 0:
+                return 0.0
+            return round((cur - prev) / prev * 100, 2)
+
+        # Gauge 指标
+        parsed_ok = db.execute(
+            select(func.count(Resume.id)).where(Resume.parse_status == 2)
+        ).scalar() or 0
+        active_jobs = db.execute(
+            select(func.count(Job.id)).where(Job.status == 1)
+        ).scalar() or 0
+        parse_rate = round(parsed_ok / total_resumes * 100, 1) if total_resumes else 0.0
+        job_active_rate = round(active_jobs / total_jobs * 100, 1) if total_jobs else 0.0
+
+        return {
+            "kpi": {
+                "users": {"total": total_users, "delta": y_users, "delta_pct": _pct(y_users, total_users - y_users if total_users - y_users > 0 else 1)},
+                "resumes": {"total": total_resumes, "delta": y_resumes, "delta_pct": _pct(y_resumes, total_resumes - y_resumes if total_resumes - y_resumes > 0 else 1)},
+                "jobs": {"total": total_jobs, "delta": y_jobs, "delta_pct": _pct(y_jobs, total_jobs - y_jobs if total_jobs - y_jobs > 0 else 1)},
+                "applications": {"total": total_apps, "delta": y_apps, "delta_pct": _pct(y_apps, total_apps - y_apps if total_apps - y_apps > 0 else 1)},
+                "matches": {"total": total_matches, "delta": y_matches, "delta_pct": _pct(y_matches, total_matches - y_matches if total_matches - y_matches > 0 else 1)},
+                "avg_score": {"total": round(float(avg_score), 1), "delta": round(float(avg_score) - float(last_week_avg), 1), "delta_pct": _pct(float(avg_score), float(last_week_avg))},
+            },
+            "gauges": {
+                "parse_rate": parse_rate,
+                "job_active_rate": job_active_rate,
+                "avg_match_score": round(float(avg_score), 1),
+            },
+            "backend_status": "ok",
+        }
+
+    def get_application_stats(self, db: Session) -> dict[str, Any]:
+        """投递统计: 总数 + 状态分布"""
+        from app.models.application import JobApplication
+
+        status_map = {0: "已投递", 1: "已查看", 2: "面试邀请", 3: "不合适", 4: "已录用"}
+        rows = db.execute(
+            select(JobApplication.status, func.count(JobApplication.id))
+            .group_by(JobApplication.status)
+        ).all()
+        distribution = {str(k): 0 for k in status_map}
+        for status, cnt in rows:
+            distribution[str(status)] = cnt
+
+        total = sum(distribution.values())
+        return {
+            "total": total,
+            "names": [status_map[int(k)] for k in ["0", "1", "2", "3", "4"]],
+            "values": [distribution[k] for k in ["0", "1", "2", "3", "4"]],
+        }
+
+    def get_match_distribution(self, db: Session) -> dict[str, Any]:
+        """匹配分直方图分桶统计"""
+        buckets = ["0-20", "20-40", "40-60", "60-80", "80-100"]
+        ranges = [(0, 20), (20, 40), (40, 60), (60, 80), (80, 101)]
+        counts = []
+        for lo, hi in ranges:
+            cnt = db.execute(
+                select(func.count(MatchRecord.id)).where(
+                    MatchRecord.total_score >= lo,
+                    MatchRecord.total_score < hi,
+                )
+            ).scalar() or 0
+            counts.append(cnt)
+
+        avg_score = db.execute(select(func.avg(MatchRecord.total_score))).scalar() or 0.0
+        # 中位数 (简化: 取排序后中间值)
+        all_scores = [r[0] for r in db.execute(
+            select(MatchRecord.total_score).order_by(MatchRecord.total_score)
+        ).all()]
+        median = 0.0
+        if all_scores:
+            mid = len(all_scores) // 2
+            median = float(all_scores[mid]) if len(all_scores) % 2 else float(
+                (all_scores[mid - 1] + all_scores[mid]) / 2
+            )
+
+        return {
+            "buckets": buckets,
+            "counts": counts,
+            "avg_score": round(float(avg_score), 1),
+            "median_score": round(median, 1),
+        }
+
+    def get_city_distribution(self, db: Session) -> dict[str, Any]:
+        """职位城市分布 TOP10"""
+        rows = db.execute(
+            select(Job.work_city, func.count(Job.id).label("cnt"))
+            .where(Job.work_city.isnot(None), Job.work_city != "")
+            .group_by(Job.work_city)
+            .order_by(desc("cnt"))
+            .limit(10)
+        ).all()
+        return {
+            "names": [r[0] for r in rows],
+            "values": [r[1] for r in rows],
+        }
+
+    def get_school_rank(self, db: Session) -> dict[str, Any]:
+        """院校 TOP10"""
+        rows = db.execute(
+            select(Resume.school, func.count(Resume.id).label("cnt"))
+            .where(Resume.school.isnot(None), Resume.school != "")
+            .group_by(Resume.school)
+            .order_by(desc("cnt"))
+            .limit(10)
+        ).all()
+        return [
+            {"name": r[0], "count": r[1]}
+            for r in rows
+        ]
+
+    def get_realtime_logs(self, db: Session, limit: int = 20) -> dict[str, Any]:
+        """最近 N 条操作日志 (供滚动流)"""
+        rows = list(db.execute(
+            select(AdminLog).order_by(AdminLog.created_at.desc()).limit(limit)
+        ).scalars())
+        return {
+            "items": [
+                {
+                    "id": l.id,
+                    "admin_id": l.admin_id,
+                    "action": l.action,
+                    "target_type": l.target_type,
+                    "target_id": l.target_id,
+                    "detail": l.detail,
+                    "ip": l.ip,
+                    "created_at": l.created_at.isoformat() if l.created_at else None,
+                }
+                for l in rows
+            ]
         }
 
 

@@ -6,13 +6,26 @@
     <el-card shadow="never" class="filter-card">
       <div class="filter-bar">
         <span class="label">我的投递记录</span>
+        <el-select
+          v-model="statusFilter"
+          placeholder="全部状态"
+          clearable
+          style="width: 140px"
+          @change="onStatusChange"
+        >
+          <el-option label="已投递" :value="0" />
+          <el-option label="已查看" :value="1" />
+          <el-option label="面试邀请" :value="2" />
+          <el-option label="不合适" :value="3" />
+          <el-option label="已录用" :value="4" />
+        </el-select>
         <el-tag v-if="!loading" type="info" size="small">共 {{ total }} 条</el-tag>
         <el-button :icon="Refresh" :loading="loading" @click="fetchList">刷新</el-button>
       </div>
     </el-card>
 
     <el-card shadow="never" class="list-card" v-loading="loading">
-      <el-empty v-if="!loading && !list.length" description="暂无投递记录, 去看看推荐职位吧">
+      <el-empty v-if="!loading && !list.length" :description="emptyText">
         <el-button type="primary" plain @click="$router.push('/seeker/recommend')">查看推荐</el-button>
       </el-empty>
       <el-table v-else :data="list" stripe>
@@ -63,7 +76,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
@@ -76,11 +89,25 @@ const loading = ref(false)
 const page = ref(Number(route.query.page) || 1)
 const pageSize = ref(20)
 const total = ref(0)
+// 状态筛选: null 表示全部
+const statusFilter = ref<number | null>(null)
+
+// 空状态文案随筛选条件变化
+const emptyText = computed(() => {
+  if (statusFilter.value !== null) {
+    return `暂无「${statusText(statusFilter.value)}」记录`
+  }
+  return '暂无投递记录, 去看看推荐职位吧'
+})
 
 const fetchList = async () => {
   loading.value = true
   try {
-    const res: any = await applicationApi.myList({ page: page.value, size: pageSize.value })
+    const res: any = await applicationApi.myList({
+      page: page.value,
+      size: pageSize.value,
+      status: statusFilter.value ?? undefined,
+    })
     list.value = res.data?.items || []
     total.value = res.data?.total || 0
   } catch (e: any) {
@@ -89,6 +116,12 @@ const fetchList = async () => {
   } finally {
     loading.value = false
   }
+}
+
+// 切换状态筛选: 重置到第 1 页
+const onStatusChange = () => {
+  page.value = 1
+  fetchList()
 }
 
 const statusText = (s: number) =>

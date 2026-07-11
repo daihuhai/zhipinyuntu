@@ -8,4 +8,6 @@ export const graphApi = {
   resumeGraph: (resumeId: number) => request.get(`/graph/resume/${resumeId}`),
   /** 技能关联图谱 */
   skillGraph: (skillName: string) => request.get(`/graph/skill/${skillName}`),
+  /** 职位能力图谱 (返回 {nodes:[...], edges:[...]}) */
+  jobGraph: (jobId: number) => request.get(`/graph/job/${jobId}`),
 }

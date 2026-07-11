@@ -18,6 +18,7 @@
         <el-upload
           ref="uploadRef"
           class="jd-upload"
+          :class="{ 'jd-uploaded': !!jdFilename && !uploading }"
           drag
           :auto-upload="true"
           :show-file-list="false"
@@ -25,10 +26,25 @@
           accept=".pdf,.doc,.docx"
           :disabled="uploading"
         >
-          <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
-          <div class="el-upload__text">
-            拖拽 JD 文件到此处, 或<em>点击上传</em>
-          </div>
+          <!-- 上传成功状态: 显示文件名 + 成功图标 -->
+          <template v-if="jdFilename && !uploading">
+            <el-icon class="el-icon--upload uploaded-icon"><DocumentChecked /></el-icon>
+            <div class="el-upload__text">
+              <span class="uploaded-filename">{{ jdFilename }}</span>
+            </div>
+            <div class="el-upload__sub-text">已上传并解析完成, 点击可重新上传</div>
+          </template>
+          <!-- 默认/上传中状态 -->
+          <template v-else>
+            <el-icon class="el-icon--upload" :class="{ rotating: uploading }">
+              <Loading v-if="uploading" />
+              <UploadFilled v-else />
+            </el-icon>
+            <div class="el-upload__text">
+              {{ uploading ? '正在上传并 AI 解析中...' : '拖拽 JD 文件到此处, 或' }}
+              <em v-if="!uploading">点击上传</em>
+            </div>
+          </template>
           <template #tip>
             <div class="el-upload__tip">
               支持 .pdf / .doc / .docx 格式, 文件不超过 10MB, 上传后自动 AI 解析填充表单
@@ -36,15 +52,31 @@
           </template>
         </el-upload>
 
-        <!-- 上传/解析状态 -->
+        <!-- 解析结果状态条 -->
         <div v-if="uploading" class="jd-status parsing">
           <el-icon class="rotating"><Loading /></el-icon>
-          <span>正在上传并调用 AI 解析 JD, 请稍候 (预计 5-15 秒)...</span>
+          <span>正在上传并调用 AI 解析 JD, 请耐心等待 (doubao-seed 推理模型, 预计 1-3 分钟)...</span>
         </div>
         <div v-else-if="jdFilename" class="jd-status success">
           <el-icon><Check /></el-icon>
           <span>{{ jdFilename }} 解析完成, 表单已自动填充 (可编辑修改)</span>
           <el-button link type="danger" @click="clearJD">清除</el-button>
+        </div>
+
+        <!-- AI 解析结果摘要 -->
+        <div v-if="parsedSummary" class="parsed-summary">
+          <div class="summary-header">
+            <el-icon><MagicStick /></el-icon>
+            <span class="summary-title">AI 智能解析结果</span>
+            <el-tag size="small" type="success" effect="plain">{{ parsedSummary.filledCount }} 个字段</el-tag>
+          </div>
+          <div class="summary-fields">
+            <div v-for="field in parsedSummary.fields" :key="field.key" class="summary-field" :class="{ 'field-empty': !field.value }">
+              <span class="field-label">{{ field.label }}</span>
+              <span class="field-value" v-if="field.value">{{ field.value }}</span>
+              <span class="field-missing" v-else>未识别</span>
+            </div>
+          </div>
         </div>
 
         <!-- 解析出的技能要求预览 -->
@@ -71,8 +103,21 @@
             v-model="form.parse_text"
             type="textarea"
             :rows="5"
-            placeholder="粘贴职位描述文本, 或上传文件后自动填充 (可选)"
+            placeholder="粘贴职位描述文本, 点击下方按钮 AI 解析后自动填充表单; 也可直接点击立即发布自动解析"
           />
+          <el-button
+            type="primary"
+            :icon="MagicStick"
+            :loading="parsingText"
+            :disabled="!form.parse_text?.trim()"
+            class="parse-text-btn"
+            @click="handleParseText"
+          >
+            {{ parsingText ? 'AI 推理中 (约1-3分钟)...' : 'AI 解析文本' }}
+          </el-button>
+          <div class="field-hint" style="margin-top: 6px">
+            提示: 粘贴 JD 文本后点击"AI 解析文本"可预览解析结果 (doubao-seed 推理模型, 约需 1-3 分钟); 也可直接点击"立即发布"自动解析
+          </div>
         </el-form-item>
 
         <el-divider>职位基本信息</el-divider>
@@ -169,14 +214,17 @@
 import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { UploadFilled, Check, Loading } from '@element-plus/icons-vue'
+import { UploadFilled, Check, Loading, MagicStick, DocumentChecked } from '@element-plus/icons-vue'
 import { jobApi } from '@/api/job'
 
 const router = useRouter()
 const submitting = ref(false)
 const uploading = ref(false)
+const parsingText = ref(false)
 const jdFilename = ref('')
 const parsedRequirements = ref<any[]>([])
+const parsedSummary = ref<any>(null)
+const uploadRef = ref<any>(null)
 
 const form = reactive<any>({
   parse_text: '',
@@ -213,25 +261,18 @@ const handleUpload = async (options: any) => {
     const res: any = await jobApi.uploadJD(file)
     const data = res.data || {}
     const parsed = data.parsed || {}
-
-    // 自动填充表单 (仅填充非空字段, 保留用户已输入的值)
-    const fields = ['title', 'company', 'work_city', 'experience_required',
-      'education_required', 'description', 'job_type']
-    fields.forEach(f => {
-      if (parsed[f] && !form[f]) form[f] = parsed[f]
-    })
-    if (parsed.salary_min != null && form.salary_min == null) form.salary_min = parsed.salary_min * 1000
-    if (parsed.salary_max != null && form.salary_max == null) form.salary_max = parsed.salary_max * 1000
-    if (parsed.headcount != null && form.headcount === 1) form.headcount = parsed.headcount
-
+    applyParsed(parsed, true)  // overwrite=true, 强制覆盖确保表单与解析结果同步
+    buildParsedSummary(parsed)  // 构建解析结果摘要
     // 填充 JD 文本
     if (data.raw_text) form.parse_text = data.raw_text
-
-    // 记录技能要求
-    parsedRequirements.value = parsed.requirements || []
     jdFilename.value = data.filename || file.name
-
-    ElMessage.success(`JD 解析成功, 已填充 ${parsedRequirements.value.length} 项技能要求`)
+    // 检测解析结果是否为空
+    const filledCount = countParsedFields(parsed)
+    if (filledCount === 0) {
+      ElMessage.warning('JD 文件已上传, 但 AI 未能解析出有效字段, 请手动填写或检查文件内容')
+    } else {
+      ElMessage.success(`AI 解析完成, 已识别 ${filledCount} 个字段, ${parsedRequirements.value.length} 项技能要求`)
+    }
   } catch (e: any) {
     ElMessage.error(e?.message || 'JD 文件上传解析失败')
   } finally {
@@ -239,20 +280,123 @@ const handleUpload = async (options: any) => {
   }
 }
 
+// 统计解析结果中有效字段数 (用于判断 AI 是否返回了有意义的数据)
+const countParsedFields = (parsed: any): number => {
+  let count = 0
+  const fields = ['title', 'company', 'work_city', 'experience_required',
+    'education_required', 'description', 'job_type']
+  fields.forEach(f => { if (parsed[f]) count++ })
+  if (parsed.salary_min != null) count++
+  if (parsed.salary_max != null) count++
+  if (parsed.headcount != null) count++
+  if (parsed.requirements?.length) count++
+  return count
+}
+
+// 构建解析结果摘要 (展示 AI 解析了哪些字段)
+const buildParsedSummary = (parsed: any) => {
+  const fields = [
+    { key: 'title', label: '职位名称', value: parsed.title || '' },
+    { key: 'company', label: '公司', value: parsed.company || '' },
+    { key: 'work_city', label: '城市', value: parsed.work_city || '' },
+    { key: 'experience_required', label: '经验', value: parsed.experience_required || '' },
+    { key: 'education_required', label: '学历', value: parsed.education_required || '' },
+    { key: 'salary', label: '薪资', value: parsed.salary_min != null ? `${parsed.salary_min}-${parsed.salary_max}K` : '' },
+    { key: 'headcount', label: '人数', value: parsed.headcount != null ? `${parsed.headcount}人` : '' },
+    { key: 'job_type', label: '性质', value: parsed.job_type || '' },
+    { key: 'description', label: '描述', value: parsed.description ? `${parsed.description.slice(0, 30)}...` : '' },
+  ]
+  const filledCount = fields.filter(f => f.value).length
+  parsedSummary.value = { fields, filledCount }
+}
+
+// 将解析结果自动填充到表单 (AI 解析返回的字段强制覆盖, 确保表单与解析结果同步)
+const applyParsed = (parsed: any, overwrite: boolean = false) => {
+  const fields = ['title', 'company', 'work_city', 'experience_required',
+    'education_required', 'description', 'job_type']
+  fields.forEach(f => {
+    if (parsed[f]) {
+      // overwrite=true 时强制覆盖; 否则仅填充空字段
+      if (overwrite || !form[f]) form[f] = parsed[f]
+    }
+  })
+  if (parsed.salary_min != null && (overwrite || form.salary_min == null)) {
+    form.salary_min = parsed.salary_min * 1000
+  }
+  if (parsed.salary_max != null && (overwrite || form.salary_max == null)) {
+    form.salary_max = parsed.salary_max * 1000
+  }
+  if (parsed.headcount != null && (overwrite || form.headcount === 1)) {
+    form.headcount = parsed.headcount
+  }
+  // 记录技能要求
+  parsedRequirements.value = parsed.requirements || []
+}
+
+// 解析 JD 纯文本 (粘贴文本后点击按钮, 强制覆盖表单字段)
+const handleParseText = async () => {
+  const text = (form.parse_text || '').trim()
+  if (!text) {
+    ElMessage.warning('请先粘贴 JD 文本')
+    return
+  }
+  parsingText.value = true
+  try {
+    const res: any = await jobApi.parseJDText(text)
+    const data = res.data || {}
+    const parsed = data.parsed || {}
+    applyParsed(parsed, true)  // overwrite=true, 强制回填
+    buildParsedSummary(parsed)  // 构建解析结果摘要
+    const filledCount = countParsedFields(parsed)
+    if (filledCount === 0) {
+      ElMessage.warning('AI 未能从文本中解析出有效字段, 请手动填写或调整 JD 文本')
+    } else {
+      ElMessage.success(`AI 解析完成, 已识别 ${filledCount} 个字段, ${parsedRequirements.value.length} 项技能要求`)
+    }
+  } catch (e: any) {
+    ElMessage.error(e?.message || 'JD 文本解析失败')
+  } finally {
+    parsingText.value = false
+  }
+}
+
 const clearJD = () => {
   jdFilename.value = ''
   parsedRequirements.value = []
+  parsedSummary.value = null
+  // 重置 el-upload 组件内部状态, 允许重新上传同一文件
+  uploadRef.value?.clearFiles()
 }
 
 const submit = async () => {
+  // 如果职位名称为空但 JD 文本有内容, 先自动解析填充表单
+  if (!form.title?.trim() && form.parse_text?.trim()) {
+    ElMessage.info('检测到 JD 文本未解析, 正在自动解析...')
+    parsingText.value = true
+    try {
+      const res: any = await jobApi.parseJDText(form.parse_text)
+      const data = res.data || {}
+      applyParsed(data.parsed || {}, true)
+    } catch (e: any) {
+      ElMessage.error(e?.message || 'JD 文本解析失败, 请手动填写或重试')
+      parsingText.value = false
+      return
+    } finally {
+      parsingText.value = false
+    }
+  }
   if (!form.title?.trim()) {
-    ElMessage.warning('请输入职位名称')
+    ElMessage.warning('请输入职位名称, 或粘贴 JD 文本后自动解析')
     return
   }
   submitting.value = true
   try {
-    // 薪资从元转为 K 存储 (3000 元 → 3K)
     const payload = { ...form }
+    // 关键优化: 已解析过的职位(有title)不传 parse_text, 避免后端重复调用AI解析(约160秒)
+    if (payload.title?.trim()) {
+      delete payload.parse_text
+    }
+    // 薪资从元转为 K 存储 (3000 元 → 3K)
     if (payload.salary_min != null) payload.salary_min = Math.round(payload.salary_min / 1000)
     if (payload.salary_max != null) payload.salary_max = Math.round(payload.salary_max / 1000)
     await jobApi.create(payload)
@@ -292,9 +436,43 @@ const reset = () => {
 .jd-upload :deep(.el-upload-dragger) {
   width: 100%;
   padding: 20px;
+  transition: all 0.3s ease;
 }
 .jd-upload :deep(.el-upload) {
   width: 100%;
+}
+
+/* 上传成功状态: 绿色边框 + 浅绿背景 + 弹入动画 */
+.jd-upload.jd-uploaded :deep(.el-upload-dragger) {
+  border-color: #52c41a;
+  background: #f6ffed;
+  animation: uploadPop 0.4s ease;
+}
+.jd-upload .uploaded-icon {
+  color: #52c41a;
+  font-size: 48px;
+  animation: iconBounce 0.5s ease;
+}
+.jd-upload .uploaded-filename {
+  font-weight: 600;
+  color: #389e0d;
+  font-size: 15px;
+  word-break: break-all;
+}
+.jd-upload .el-upload__sub-text {
+  font-size: 12px;
+  color: #999;
+  margin-top: 6px;
+}
+@keyframes uploadPop {
+  0% { transform: scale(0.98); }
+  50% { transform: scale(1.01); }
+  100% { transform: scale(1); }
+}
+@keyframes iconBounce {
+  0% { transform: translateY(0); opacity: 0; }
+  50% { transform: translateY(-6px); opacity: 1; }
+  100% { transform: translateY(0); }
 }
 
 /* 上传状态 */
@@ -320,6 +498,66 @@ const reset = () => {
 }
 @keyframes rotate {
   to { transform: rotate(360deg); }
+}
+
+/* AI 解析结果摘要 */
+.parsed-summary {
+  background: linear-gradient(135deg, #f0f5ff 0%, #e6f4ff 100%);
+  border: 1px solid #adc6ff;
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  animation: summaryFadeIn 0.4s ease;
+}
+@keyframes summaryFadeIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.summary-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-weight: 600;
+  color: #1677ff;
+}
+.summary-title {
+  font-size: 14px;
+  flex: 1;
+}
+.summary-fields {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.summary-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 6px;
+  border: 1px solid #d6e4ff;
+}
+.summary-field.field-empty {
+  background: rgba(255, 255, 255, 0.4);
+  border-color: #e8e8e8;
+}
+.field-label {
+  font-size: 11px;
+  color: #8c8c8c;
+  font-weight: 500;
+}
+.field-value {
+  font-size: 13px;
+  color: #262626;
+  font-weight: 500;
+  word-break: break-all;
+}
+.field-missing {
+  font-size: 12px;
+  color: #bfbfbf;
+  font-style: italic;
 }
 
 /* 解析出的技能要求 */
@@ -355,5 +593,8 @@ const reset = () => {
   color: #999;
   margin-top: 2px;
   line-height: 1.4;
+}
+.parse-text-btn {
+  margin-top: 10px;
 }
 </style>

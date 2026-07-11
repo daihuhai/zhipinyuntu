@@ -7,6 +7,7 @@ from app.models.match import MatchRecord
 from app.models.application import JobApplication
 from app.models.log import AdminLog
 from app.models.message import Message
+from app.models.favorite import Favorite
 
 __all__ = [
     "SysUser",
@@ -17,4 +18,5 @@ __all__ = [
     "JobApplication",
     "AdminLog",
     "Message",
+    "Favorite",
 ]

@@ -1,9 +1,10 @@
 """
 简历业务服务
-- 上传 + 解析 (同步调用豆包)
+- 上传 + 解析 (调用豆包, LLM 阻塞操作放到线程池避免卡死事件循环)
 - 列表 / 详情 / 删除
 - 向量生成 (用于 M4 匹配)
 """
+import asyncio
 import json
 from typing import Any
 
@@ -22,6 +23,23 @@ from app.services.graph_service import graph_service
 class ResumeService:
     """简历业务"""
 
+    # 技能等级规范化 (兜底大模型返回的长描述)
+    _LEVEL_KEYWORDS = [("精通", "精通"), ("熟练", "熟练"), ("掌握", "掌握"), ("了解", "了解")]
+    _VALID_LEVELS = {"精通", "熟练", "掌握", "了解"}
+
+    @classmethod
+    def _normalize_level(cls, raw: str | None) -> str:
+        """将任意 skill_level 文本归一化为 精通/熟练/掌握/了解 之一"""
+        if not raw or not isinstance(raw, str):
+            return "掌握"
+        raw = raw.strip()
+        if raw in cls._VALID_LEVELS:
+            return raw
+        for kw, std in cls._LEVEL_KEYWORDS:
+            if kw in raw:
+                return std
+        return "掌握"
+
     async def upload_and_parse(self, upload, user_id: int, db: Session) -> dict:
         """上传简历并同步解析"""
         # 1. 保存文件
@@ -38,11 +56,11 @@ class ResumeService:
         db.commit()
         db.refresh(resume)
 
-        # 3. 提取文本 + 豆包结构化 (同步)
+        # 3. 提取文本 + 豆包结构化 (放到线程池, 避免阻塞事件循环)
         try:
             abs_path = file_info["abs_path"]
-            text = doc_parser.extract_text(abs_path)
-            parsed = doc_parser.parse_resume(text)
+            text = await asyncio.to_thread(doc_parser.extract_text, abs_path)
+            parsed = await asyncio.to_thread(doc_parser.parse_resume, text)
 
             # 4. 回填结构化字段
             self._fill_resume_fields(resume, parsed)
@@ -102,12 +120,12 @@ class ResumeService:
             name = sk.get("name") or sk.get("skill_name")
             if not name:
                 continue
-            level = sk.get("level") or sk.get("skill_level")
+            level = self._normalize_level(sk.get("level") or sk.get("skill_level"))
             resume.skills.append(
                 ResumeSkill(
-                    skill_name=name.strip(),
+                    skill_name=name.strip()[:64],
                     skill_level=level,
-                    weight=level_weight.get(level, 0.6),
+                    weight=level_weight[level],
                 )
             )
 

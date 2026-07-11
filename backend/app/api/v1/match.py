@@ -14,7 +14,8 @@ from app.core.deps import get_current_user, require_role
 from app.db.base import get_db
 from app.models.match import MatchRecord
 from app.models.user import SysUser
-from app.schemas.common import success
+from app.models.job import Job
+from app.schemas.common import success, fail, BizError
 from app.services.match_service import match_service
 
 router = APIRouter(prefix="/match", tags=["智能匹配"])
@@ -60,7 +61,7 @@ def _resume_to_dict(resume) -> dict[str, Any]:
 
 
 @router.get("/resume/{resume_id}/jobs", summary="简历推荐职位")
-async def recommend_jobs(
+def recommend_jobs(
     resume_id: int,
     top_k: int = Query(10, ge=1, le=50),
     current_user: SysUser = Depends(require_role("ROLE_SEEKER", "ROLE_ADMIN")),
@@ -86,13 +87,20 @@ async def recommend_jobs(
 
 
 @router.get("/job/{job_id}/resumes", summary="职位推荐候选人")
-async def recommend_resumes(
+def recommend_resumes(
     job_id: int,
     top_k: int = Query(10, ge=1, le=50),
     current_user: SysUser = Depends(require_role("ROLE_EMPLOYER", "ROLE_ADMIN")),
     db: Session = Depends(get_db),
 ):
     """为企业职位推荐匹配候选人 (召回→粗排→精排)"""
+    # IDOR 防护: 企业仅可查看本企业职位的候选人 (管理员除外)
+    job = db.get(Job, job_id)
+    if not job:
+        return fail(BizError.RESOURCE_NOT_FOUND, "职位不存在")
+    if current_user.role == "ROLE_EMPLOYER" and job.user_id != current_user.id:
+        return fail(BizError.ROLE_FORBIDDEN, "无权查看非本企业职位的候选人")
+
     results = match_service.recommend_resumes_for_job(job_id, db, top_k=top_k)
     data = [
         {
@@ -105,6 +113,8 @@ async def recommend_resumes(
             "salary_score": item["salary_score"],
             "proj_score": item["proj_score"],
             "match_reason": item["match_reason"],
+            "application_id": item.get("application_id"),
+            "application_status": item.get("application_status"),
         }
         for item in results
     ]

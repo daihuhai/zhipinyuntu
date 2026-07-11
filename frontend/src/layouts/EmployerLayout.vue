@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
+import { messageApi } from '@/api/message'
 
 const router = useRouter()
 const userStore = useUserStore()
 const collapsed = ref(false)
+const unreadCount = ref(0)
+let pollTimer: ReturnType<typeof setInterval> | null = null
 
 const menuItems = [
   { index: '/employer/dashboard', icon: 'Odometer', title: '仪表盘' },
@@ -13,21 +16,46 @@ const menuItems = [
   { index: '/employer/job/list', icon: 'Briefcase', title: '职位列表' },
   { index: '/employer/candidates', icon: 'User', title: '候选人推荐' },
   { index: '/employer/applications', icon: 'Tickets', title: '投递管理' },
-  { index: '/employer/messages', icon: 'ChatDotRound', title: '消息' },
+  { index: '/employer/messages', icon: 'ChatDotRound', title: '消息', badge: true },
   { index: '/employer/profile', icon: 'Setting', title: '企业设置' },
 ]
-const handleSelect = (index: string) => router.push(index)
+
+const fetchUnread = async () => {
+  try {
+    const res: any = await messageApi.unreadCount()
+    unreadCount.value = res.data?.unread_count || 0
+  } catch {}
+}
+
+const handleSelect = (index: string) => {
+  if (index === '/employer/messages') unreadCount.value = 0
+  router.push(index)
+}
 const handleLogout = () => { userStore.logout(); router.push('/login') }
+
+onMounted(() => {
+  fetchUnread()
+  pollTimer = setInterval(fetchUnread, 15000)
+})
+onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
 </script>
 
 <template>
   <el-container class="layout">
     <el-aside :width="collapsed ? '64px' : '220px'" class="sidebar">
-      <div class="logo"><span v-if="!collapsed">智聘云图</span><span v-else>智</span></div>
+      <div class="logo">
+        <img src="@/assets/logo.png" class="logo-img" alt="智聘云图" />
+        <span v-if="!collapsed">智聘云图</span>
+      </div>
       <el-menu :default-active="$route.path" :collapse="collapsed" background-color="#001529" text-color="#ffffffb3" active-text-color="#fff" @select="handleSelect">
         <el-menu-item v-for="item in menuItems" :key="item.index" :index="item.index">
           <el-icon><component :is="item.icon" /></el-icon>
-          <template #title>{{ item.title }}</template>
+          <template #title>
+            <el-badge v-if="item.badge" :value="unreadCount" :hidden="!unreadCount" :max="99" class="menu-badge">
+              {{ item.title }}
+            </el-badge>
+            <span v-else>{{ item.title }}</span>
+          </template>
         </el-menu-item>
       </el-menu>
     </el-aside>
@@ -54,7 +82,8 @@ const handleLogout = () => { userStore.logout(); router.push('/login') }
 <style scoped>
 .layout { height: 100vh; }
 .sidebar { background: #001529; transition: width 0.2s; overflow: hidden; }
-.logo { height: 60px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 20px; font-weight: 700; letter-spacing: 2px; }
+.logo { height: 60px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 20px; font-weight: 700; letter-spacing: 2px; gap: 8px; overflow: hidden; }
+.logo-img { width: 40px; height: 40px; object-fit: contain; border-radius: 8px; flex-shrink: 0; }
 .header { background: #fff; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-color); padding: 0 20px; }
 .header-left { display: flex; align-items: center; gap: 16px; }
 .collapse-btn { font-size: 20px; cursor: pointer; }
@@ -62,4 +91,6 @@ const handleLogout = () => { userStore.logout(); router.push('/login') }
 .user-info { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .username { font-size: 14px; }
 .main { background: var(--bg-page); padding: 20px; overflow-y: auto; }
+.menu-badge :deep(.el-badge__content) { background-color: #f56c6c; border: none; font-size: 11px; height: 18px; line-height: 18px; }
+:deep(.el-menu-item) { caret-color: transparent; user-select: none; }
 </style>

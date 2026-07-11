@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.db.neo4j_client import neo4j_client
 from app.models.job import Job, JobRequirement
 from app.models.resume import Resume, ResumeSkill
+from app.models.skill import SkillDict
 from app.models.user import SysUser
 
 
@@ -99,6 +100,19 @@ class GraphService:
         # 降级: 从关系数据库读取
         return {"nodes": [], "edges": [], "degraded": True}
 
+    def get_job_graph(self, job_id: int) -> dict[str, Any]:
+        """获取职位能力图谱 (中心=Job, 邻居=Skill)"""
+        if neo4j_client.available:
+            cypher = """
+            MATCH (j:Job {id: $id})-[r:REQUIRES]->(s:Skill)
+            RETURN j, r, s
+            """
+            rows = neo4j_client.run(cypher, {"id": job_id})
+            if rows:
+                return self._format_graph(rows, center_type="Job")
+        # 降级: 从关系数据库读取
+        return {"nodes": [], "edges": [], "degraded": True}
+
     def get_skill_graph(self, skill_name: str) -> dict[str, Any]:
         """获取技能关联图谱 (哪些人/职位涉及该技能)"""
         if neo4j_client.available:
@@ -133,7 +147,7 @@ class GraphService:
 
     # ===== 降级模式: 从关系数据库构建图谱数据 =====
     def get_resume_graph_fallback(self, resume_id: int, db: Session) -> dict[str, Any]:
-        """从关系数据库构建简历能力图谱 (Neo4j 不可用时)"""
+        """从关系数据库构建简历能力图谱 (Neo4j 不可用时), 带技能分类层级"""
         resume = db.get(Resume, resume_id)
         if not resume:
             return {"nodes": [], "edges": []}
@@ -148,7 +162,30 @@ class GraphService:
             },
         }]
         edges = []
+        # 预加载技能词典分类
+        skill_names = [sk.skill_name for sk in resume.skills]
+        skill_cats = {}
+        if skill_names:
+            rows = db.execute(
+                select(SkillDict.name, SkillDict.category).where(SkillDict.name.in_(skill_names))
+            ).all()
+            skill_cats = {r[0]: r[1] for r in rows}
+        # 默认分类
+        default_cats = {
+            "Java": "编程语言", "Python": "编程语言", "C++": "编程语言", "Go": "编程语言",
+            "JavaScript": "编程语言", "TypeScript": "编程语言",
+            "Spring Boot": "框架", "Django": "框架", "Vue": "框架", "React": "框架",
+            "MySQL": "数据库", "PostgreSQL": "数据库", "Redis": "数据库", "MongoDB": "数据库",
+            "Kubernetes": "工具", "Docker": "工具", "Git": "工具", "Linux": "工具",
+        }
+        # 收集分类节点 (避免重复)
+        cat_nodes: dict[str, dict] = {}
+        cat_edges_added: set[str] = set()
         for sk in resume.skills:
+            cat = skill_cats.get(sk.skill_name) or default_cats.get(sk.skill_name, "其他技能")
+            cat_id = f"cat_{cat}"
+            if cat_id not in cat_nodes:
+                cat_nodes[cat_id] = {"id": cat_id, "label": cat, "type": "Category", "properties": {}}
             sk_id = f"skill_{sk.skill_name}"
             nodes.append({
                 "id": sk_id,
@@ -156,11 +193,59 @@ class GraphService:
                 "type": "Skill",
                 "properties": {"level": sk.skill_level},
             })
+            # Person → Category (去重)
+            if cat_id not in cat_edges_added:
+                edges.append({
+                    "source": f"resume_{resume.id}",
+                    "target": cat_id,
+                    "label": "HAS_CATEGORY",
+                    "weight": 1.0,
+                })
+                cat_edges_added.add(cat_id)
+            # Category → Skill
             edges.append({
-                "source": f"resume_{resume.id}",
+                "source": cat_id,
                 "target": sk_id,
-                "label": "HAS_SKILL",
-                "weight": sk.weight,
+                "label": "INCLUDES",
+                "weight": sk.weight or 0.6,
+            })
+        nodes.extend(cat_nodes.values())
+        return {"nodes": nodes, "edges": edges, "degraded": True}
+
+    def get_job_graph_fallback(self, job_id: int, db: Session) -> dict[str, Any]:
+        """从关系数据库构建职位能力图谱 (中心=Job, 邻居=Skill, 区分必须/优先)"""
+        job = db.get(Job, job_id)
+        if not job:
+            return {"nodes": [], "edges": []}
+        nodes = [{
+            "id": f"job_{job.id}",
+            "label": job.title or f"职位#{job.id}",
+            "type": "Job",
+            "properties": {
+                "company": job.company,
+                "city": job.work_city,
+                "salary_min": job.salary_min,
+                "salary_max": job.salary_max,
+            },
+        }]
+        edges = []
+        for req in job.requirements:
+            sk_id = f"skill_{req.skill_name}"
+            nodes.append({
+                "id": sk_id,
+                "label": req.skill_name,
+                "type": "Skill",
+                "properties": {
+                    "category": req.req_type,
+                    "level": req.skill_level,
+                },
+            })
+            edges.append({
+                "source": f"job_{job.id}",
+                "target": sk_id,
+                "label": "REQUIRES",
+                "req_type": req.req_type,
+                "weight": req.weight,
             })
         return {"nodes": nodes, "edges": edges, "degraded": True}
 

@@ -63,6 +63,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '职位推荐', role: 'ROLE_SEEKER' },
       },
       {
+        path: 'favorites',
+        name: 'SeekerFavorites',
+        component: () => import('@/views/seeker/Favorites.vue'),
+        meta: { title: '我的收藏', icon: 'Star', role: 'ROLE_SEEKER' },
+      },
+      {
         path: 'graph',
         name: 'SeekerGraph',
         component: () => import('@/views/seeker/ResumeGraph.vue'),
@@ -147,8 +153,8 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'dashboard',
         name: 'AdminDashboard',
-        component: () => import('@/views/admin/Dashboard.vue'),
-        meta: { title: '运营监控看板', role: 'ROLE_ADMIN' },
+        component: () => import('@/views/admin/DashboardCenter.vue'),
+        meta: { title: '数据指挥中心', role: 'ROLE_ADMIN' },
       },
       {
         path: 'users',

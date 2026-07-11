@@ -66,7 +66,7 @@ class DocParser:
         # 截断超长文本 (避免 token 超限)
         truncated = text[:8000]
         messages = build_resume_messages(truncated)
-        result = ark_client.chat_json(messages, temperature=0.1)
+        result = ark_client.chat_json(messages, temperature=0.0, max_tokens=2048)
         logger.info(f"简历结构化完成, 字段: {list(result.keys())}")
         return result
 
@@ -76,9 +76,45 @@ class DocParser:
             raise ValueError("职位文本为空")
         truncated = text[:4000]
         messages = build_job_messages(truncated)
-        result = ark_client.chat_json(messages, temperature=0.1)
-        logger.info(f"职位结构化完成, 字段: {list(result.keys())}")
-        return result
+        # max_tokens=1024: 限制输出长度加速推理 (prompt已要求description不超过200字、requirements最多8项)
+        result = ark_client.chat_json(messages, temperature=0.0, max_tokens=1024)
+        # 字段映射容错: 兼容 AI 返回的别名
+        field_aliases = {
+            "title": ["title", "job_title", "position", "职位名称", "职位"],
+            "company": ["company", "company_name", "公司名称", "公司"],
+            "department": ["department", "dept", "部门"],
+            "job_type": ["job_type", "employment_type", "工作性质", "工作类型"],
+            "salary_min": ["salary_min", "min_salary", "薪资下限", "最低薪资"],
+            "salary_max": ["salary_max", "max_salary", "薪资上限", "最高薪资"],
+            "work_city": ["work_city", "city", "location", "工作城市", "工作地点"],
+            "experience_required": ["experience_required", "experience", "经验要求", "工作经验"],
+            "education_required": ["education_required", "education", "学历要求", "学历"],
+            "headcount": ["headcount", "hire_count", "招聘人数", "人数"],
+            "description": ["description", "job_description", "职位描述", "岗位职责", "工作内容"],
+            "requirements": ["requirements", "skills", "技能要求", "任职要求"],
+        }
+        normalized = {}
+        for target, aliases in field_aliases.items():
+            for alias in aliases:
+                if alias in result and result[alias] is not None:
+                    normalized[target] = result[alias]
+                    break
+            else:
+                normalized[target] = None
+        # 确保 requirements 是列表
+        if normalized.get("requirements") and not isinstance(normalized["requirements"], list):
+            normalized["requirements"] = []
+        # 确保数值字段为整数
+        for num_field in ["salary_min", "salary_max", "headcount"]:
+            val = normalized.get(num_field)
+            if val is not None:
+                try:
+                    normalized[num_field] = int(float(val))
+                except (ValueError, TypeError):
+                    normalized[num_field] = None
+        filled = [k for k, v in normalized.items() if v is not None]
+        logger.info(f"职位结构化完成, 有效字段 {len(filled)}/{len(normalized)}: {filled}")
+        return normalized
 
 
 doc_parser = DocParser()

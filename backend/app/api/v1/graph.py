@@ -1,6 +1,7 @@
 """
 知识图谱路由
 - GET /graph/resume/{id}  简历能力图谱
+- GET /graph/job/{id}      职位能力图谱
 - GET /graph/skill/{name} 技能关联图谱
 """
 from fastapi import APIRouter, Depends
@@ -26,6 +27,19 @@ async def resume_graph(
     data = graph_service.get_resume_graph(resume_id)
     if data.get("degraded"):
         data = graph_service.get_resume_graph_fallback(resume_id, db)
+    return success(data=data)
+
+
+@router.get("/job/{job_id}", summary="职位能力图谱", response_model=None)
+async def job_graph(
+    job_id: int,
+    current_user: SysUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """获取职位能力图谱 (Job-Skill 节点与边, 区分必须/优先技能)"""
+    data = graph_service.get_job_graph(job_id)
+    if data.get("degraded"):
+        data = graph_service.get_job_graph_fallback(job_id, db)
     return success(data=data)
 
 

@@ -83,3 +83,46 @@ async def me(current_user: SysUser = Depends(get_current_user)):
         "status": current_user.status,
     }
     return success(data=data)
+
+
+@router.put("/profile", summary="修改个人信息", response_model=None)
+async def update_profile(
+    payload: dict,
+    current_user: SysUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """修改当前用户个人信息 (昵称/手机/邮箱/企业名称等)"""
+    try:
+        # 可编辑字段白名单
+        allowed_fields = {
+            "nickname", "phone", "email", "avatar_url",
+            "company_name", "contact_person", "real_name", "gender",
+        }
+        updated = []
+        for field in allowed_fields:
+            if field in payload:
+                val = payload[field]
+                if val is not None:
+                    setattr(current_user, field, val)
+                    updated.append(field)
+        if not updated:
+            return fail(BizError.VALIDATION_ERROR, "没有可更新的字段")
+        db.commit()
+        db.refresh(current_user)
+        data = {
+            "user_id": current_user.id,
+            "username": current_user.username,
+            "nickname": current_user.nickname,
+            "role": current_user.role,
+            "avatar_url": current_user.avatar_url,
+            "phone": current_user.phone,
+            "email": current_user.email,
+            "company_name": current_user.company_name,
+            "contact_person": current_user.contact_person,
+            "real_name": current_user.real_name,
+            "gender": current_user.gender,
+        }
+        return success(data=data, message="个人信息更新成功")
+    except Exception as e:
+        db.rollback()
+        return fail(BizError.SYSTEM_ERROR, f"更新失败: {e}")

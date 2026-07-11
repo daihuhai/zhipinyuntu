@@ -34,13 +34,15 @@
           </template>
         </el-table-column>
         <el-table-column prop="headcount" label="招聘人数" width="90" />
-        <el-table-column label="投递数" width="90">
+        <el-table-column label="投递数" width="90" align="center">
           <template #default="{ row }">
-            <el-badge :value="row.application_count" :hidden="!row.application_count" type="primary">
-              <el-button link type="warning" size="small" @click="$router.push(`/employer/applications?job_id=${row.id}`)">
-                {{ row.application_count || 0 }}
-              </el-button>
-            </el-badge>
+            <el-button
+              link
+              :type="row.application_count ? 'warning' : 'info'"
+              @click="$router.push(`/employer/applications?job_id=${row.id}`)"
+            >
+              {{ row.application_count || 0 }}
+            </el-button>
           </template>
         </el-table-column>
         <el-table-column label="状态" width="90">
@@ -51,21 +53,25 @@
         <el-table-column prop="created_at" label="创建时间" min-width="150">
           <template #default="{ row }">{{ formatDate(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
-            <el-button link type="warning" @click="$router.push(`/employer/applications?job_id=${row.id}`)">投递{{ row.application_count ? `(${row.application_count})` : '' }}</el-button>
-            <el-button link type="success" @click="$router.push(`/employer/candidates?job_id=${row.id}`)">推荐</el-button>
-            <el-dropdown @command="(c: string) => handleCommand(c, row)">
-              <el-button link type="primary">更多<el-icon><ArrowDown /></el-icon></el-button>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item command="status_1">上架</el-dropdown-item>
-                  <el-dropdown-item command="status_0">下架</el-dropdown-item>
-                  <el-dropdown-item command="status_2">转为草稿</el-dropdown-item>
-                  <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
+            <div class="action-cell">
+              <el-button link type="warning" class="action-btn" @click="$router.push(`/employer/applications?job_id=${row.id}`)">
+                投递<template v-if="row.application_count">({{ row.application_count }})</template>
+              </el-button>
+              <el-button link type="success" class="action-btn" @click="$router.push(`/employer/candidates?job_id=${row.id}`)">推荐</el-button>
+              <el-dropdown @command="(c: string) => handleCommand(c, row)">
+                <el-button link type="primary">更多<el-icon><ArrowDown /></el-icon></el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="status_1">上架</el-dropdown-item>
+                    <el-dropdown-item command="status_0">下架</el-dropdown-item>
+                    <el-dropdown-item command="status_2">转为草稿</el-dropdown-item>
+                    <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -137,4 +143,6 @@ onMounted(fetchList)
   align-items: center;
   gap: 12px;
 }
+.action-cell { display: flex; align-items: center; gap: 4px; }
+.action-btn { min-width: 56px; text-align: center; }
 </style>

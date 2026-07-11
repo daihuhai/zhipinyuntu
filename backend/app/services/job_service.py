@@ -21,6 +21,23 @@ from app.services.graph_service import graph_service
 class JobService:
     """职位业务"""
 
+    # 技能等级规范化 (兜底大模型返回的长描述)
+    _LEVEL_KEYWORDS = [("精通", "精通"), ("熟练", "熟练"), ("掌握", "掌握"), ("了解", "了解")]
+    _VALID_LEVELS = {"精通", "熟练", "掌握", "了解"}
+
+    @classmethod
+    def _normalize_level(cls, raw: str | None) -> str:
+        """将任意 skill_level 文本归一化为 精通/熟练/掌握/了解 之一"""
+        if not raw or not isinstance(raw, str):
+            return "掌握"
+        raw = raw.strip()
+        if raw in cls._VALID_LEVELS:
+            return raw
+        for kw, std in cls._LEVEL_KEYWORDS:
+            if kw in raw:
+                return std
+        return "掌握"
+
     def create(self, data: dict[str, Any], user_id: int, db: Session) -> Job:
         """创建职位 (若提供 parse_text 则用豆包解析 JD)"""
         parse_text = data.pop("parse_text", None)
@@ -74,12 +91,17 @@ class JobService:
             name = req.get("skill_name") or req.get("name")
             if not name:
                 continue
+            level = self._normalize_level(req.get("skill_level"))
+            req_type = req.get("req_type") or "必须"
+            # req_type 字段也做长度兜底 (String(8))
+            if len(req_type) > 8:
+                req_type = "必须"
             job.requirements.append(
                 JobRequirement(
-                    skill_name=name.strip(),
-                    skill_level=req.get("skill_level"),
-                    req_type=req.get("req_type"),
-                    weight=1.0 if req.get("req_type") == "必须" else 0.7,
+                    skill_name=name.strip()[:64],
+                    skill_level=level,
+                    req_type=req_type,
+                    weight=1.0 if req_type == "必须" else 0.7,
                 )
             )
         db.commit()
