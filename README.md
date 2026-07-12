@@ -12,7 +12,7 @@
 | --- | --- |
 | 前端 | Vue 3.5 + Vite + TypeScript + Element Plus + Pinia + ECharts |
 | 后端 | Python 3.12 + FastAPI + Uvicorn + SQLAlchemy 2.0 |
-| 数据库 | SQLite (开发) / 达梦 DM8 (国产化生产) |
+| 数据库 | GreatSQL 8.0 (国产化, 兼容 MySQL 协议) |
 | 图数据库 | Neo4j 5 (含降级模式) |
 | 缓存/队列 | Redis 7 + Celery |
 | AI | 豆包 ARK API (OpenAI SDK 兼容) |
@@ -179,22 +179,16 @@ sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-
 sudo chmod +x /usr/local/bin/docker-compose
 ```
 
-### 5.3 国产数据库适配 (达梦 DM8)
+### 5.3 国产数据库适配 (GreatSQL 8.0)
 
 修改 `backend/.env.prod` 中的 `DATABASE_URL`:
 
 ```
-DATABASE_URL=dm+dmPython://zhipin:zhipin123@dm8-host:5236/zhipin
+DATABASE_URL=mysql+pymysql://zhipin:zhipin123@greatsql-host:3306/zhipin?charset=utf8mb4
 ```
 
-需在 `requirements.txt` 中追加:
-
-```
-dmPython>=2.4
-SQLAlchemy-Dm>=1.4
-```
-
-并修改 `app/db/base.py` 中的 `BigIntPK` 以适配 DM8 的 `BIGINT` 自增语义。
+GreatSQL 完全兼容 MySQL 协议, 无需额外驱动, `pymysql` 即可直连。
+`app/db/base.py` 中的 `BigIntPK` 已适配 GreatSQL 的 `BIGINT AUTO_INCREMENT` 语义。
 
 ### 5.4 离线部署 (无外网环境)
 

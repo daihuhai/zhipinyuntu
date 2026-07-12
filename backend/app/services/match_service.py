@@ -254,7 +254,7 @@ class MatchService:
         job_ids = [job.id for job, _ in top_candidates]
 
         # 查询近期缓存 (2 小时内的匹配记录)
-        # 注意: SQLite func.now() 返回 UTC 时间, 故用 utcnow() 对齐
+        # 注意: GreatSQL/MySQL func.now() 返回 UTC 时间, 故用 utcnow() 对齐
         from datetime import datetime, timedelta
         cache_threshold = datetime.utcnow() - timedelta(hours=2)
         cached = db.execute(

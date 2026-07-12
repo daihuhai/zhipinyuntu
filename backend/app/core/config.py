@@ -25,8 +25,8 @@ class Settings(BaseSettings):
     BACKEND_HOST: str = "0.0.0.0"
     BACKEND_PORT: int = 8000
 
-    # ===== 数据库 =====
-    DATABASE_URL: str = "sqlite:///./zhipin.db"
+    # ===== 数据库 (GreatSQL/MySQL 8.0, 兼容 MySQL 协议) =====
+    DATABASE_URL: str = "mysql+pymysql://root:123456@127.0.0.1:3306/zhipin?charset=utf8mb4"
 
     # ===== Redis =====
     REDIS_URL: str = "redis://localhost:6379/0"

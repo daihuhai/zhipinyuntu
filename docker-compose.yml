@@ -84,7 +84,7 @@ services:
     environment:
       - APP_ENV=production
       - APP_DEBUG=false
-      - DATABASE_URL=sqlite:///./data/zhipin.db
+      - DATABASE_URL=mysql+pymysql://root:${DB_PASSWORD:-123456}@greatsql:3306/zhipin?charset=utf8mb4
       - REDIS_URL=redis://redis:6379/0
       - NEO4J_URL=bolt://neo4j:7687
       - NEO4J_USER=neo4j
