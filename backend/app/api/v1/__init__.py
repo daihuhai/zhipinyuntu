@@ -10,6 +10,11 @@ from app.api.v1.match import router as match_router
 from app.api.v1.application import router as application_router
 from app.api.v1.admin import router as admin_router
 from app.api.v1.message import router as message_router
+from app.api.v1.interview import router as interview_router
+from app.api.v1.license import router as license_router, admin_router as license_admin_router
+from app.api.v1.subscription import router as subscription_router
+from app.api.v1.websocket import router as ws_router
+from app.api.v1.metrics import router as metrics_router
 
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(health_router)
@@ -21,5 +26,11 @@ api_router.include_router(match_router)
 api_router.include_router(application_router)
 api_router.include_router(admin_router)
 api_router.include_router(message_router)
+api_router.include_router(interview_router)
+api_router.include_router(license_router)
+api_router.include_router(license_admin_router)
+api_router.include_router(subscription_router)
+api_router.include_router(ws_router)
+api_router.include_router(metrics_router)
 
 __all__ = ["api_router"]

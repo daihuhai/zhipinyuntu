@@ -65,6 +65,6 @@ def get_db() -> Generator:
 def init_db() -> None:
     """创建所有表 (开发环境使用, 生产环境用 Alembic 迁移)"""
     # 导入所有模型以便 Base.metadata 注册
-    from app.models import user, resume, job, skill, match, log, favorite  # noqa: F401
+    from app.models import user, resume, job, skill, match, log, favorite, application, interview, license, subscription  # noqa: F401
 
     Base.metadata.create_all(bind=engine)

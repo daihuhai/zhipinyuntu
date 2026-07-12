@@ -27,13 +27,13 @@ from app.utils.mask import mask_phone, mask_email
 router = APIRouter(prefix="/applications", tags=["投递记录"])
 
 # 投递状态文案
-_STATUS_TEXT = {0: "已投递", 1: "已查看", 2: "面试邀请", 3: "不合适", 4: "已录用"}
+_STATUS_TEXT = {0: "已投递", 1: "已查看", 2: "面试邀请", 3: "不合适", 4: "已录用", 5: "已撤回"}
 
 
 def _notify_seeker_status_change(
     db: Session, application: JobApplication, old_status: int, new_status: int, employer: SysUser
 ) -> None:
-    """投递状态变更时通知求职者 (通过站内消息)"""
+    """投递状态变更时通知求职者 (通过站内消息 + WebSocket)"""
     # 状态未变化或回到"已投递"时不通知
     if old_status == new_status or new_status == 0:
         return
@@ -55,6 +55,21 @@ def _notify_seeker_status_change(
         )
         db.add(msg)
         db.commit()
+
+        # WebSocket 实时推送
+        from app.api.v1.websocket import notify_user
+        notify_user(resume.user_id, {
+            "type": "application_status_change",
+            "data": {
+                "application_id": application.id,
+                "job_id": application.job_id,
+                "job_title": job_title,
+                "old_status": old_status,
+                "new_status": new_status,
+                "status_text": status_text,
+                "content": content,
+            },
+        })
     except Exception:
         # 通知失败不影响主流程
         db.rollback()
@@ -151,14 +166,14 @@ async def create_application(
 async def list_my_applications(
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
-    status: Optional[int] = Query(None, description="按状态筛选 (0=已投递 1=已查看 2=面试邀请 3=不合适 4=已录用)"),
+    status: Optional[int] = Query(None, description="按状态筛选 (0=已投递 1=已查看 2=面试邀请 3=不合适 4=已录用 5=已撤回)"),
     current_user: SysUser = Depends(require_role("ROLE_SEEKER")),
     db: Session = Depends(get_db),
 ):
     """查询当前求职者的投递记录 (含职位信息, 可按状态筛选)"""
     # 状态值校验 (status=0 是合法值, 需用 is None 判断)
-    if status is not None and (status < 0 or status > 4):
-        return fail(BizError.VALIDATION_ERROR, "状态值非法 (应为 0-4)")
+    if status is not None and (status < 0 or status > 5):
+        return fail(BizError.VALIDATION_ERROR, "状态值非法 (应为 0-5)")
 
     base_stmt = select(JobApplication, Job).join(
         Job, JobApplication.job_id == Job.id
@@ -213,7 +228,7 @@ async def my_application_trend(
     day_labels = [d.strftime("%m-%d") for d in days]
     daily_counts = {d: 0 for d in day_labels}
 
-    by_status = {"0": 0, "1": 0, "2": 0, "3": 0, "4": 0}
+    by_status = {"0": 0, "1": 0, "2": 0, "3": 0, "4": 0, "5": 0}
     for app in apps:
         by_status[str(app.status)] = by_status.get(str(app.status), 0) + 1
         if app.created_at:
@@ -310,9 +325,9 @@ async def batch_update_status(
     current_user: SysUser = Depends(require_role("ROLE_EMPLOYER", "ROLE_ADMIN")),
     db: Session = Depends(get_db),
 ):
-    """企业批量更新投递状态 (0=已投递 1=已查看 2=面试邀请 3=不合适 4=已录用)"""
-    if req.status < 0 or req.status > 4:
-        return fail(BizError.VALIDATION_ERROR, "状态值非法 (应为 0-4)")
+    """企业批量更新投递状态 (0=已投递 1=已查看 2=面试邀请 3=不合适 4=已录用 5=已撤回)"""
+    if req.status < 0 or req.status > 5:
+        return fail(BizError.VALIDATION_ERROR, "状态值非法 (应为 0-5)")
     if not req.ids:
         return fail(BizError.VALIDATION_ERROR, "ids 不能为空")
     try:
@@ -346,9 +361,9 @@ async def update_application_status(
     current_user: SysUser = Depends(require_role("ROLE_EMPLOYER", "ROLE_ADMIN")),
     db: Session = Depends(get_db),
 ):
-    """企业更新投递状态 (0=已投递 1=已查看 2=面试邀请 3=不合适 4=已录用)"""
-    if req.status < 0 or req.status > 4:
-        return fail(BizError.VALIDATION_ERROR, "状态值非法 (应为 0-4)")
+    """企业更新投递状态 (0=已投递 1=已查看 2=面试邀请 3=不合适 4=已录用 5=已撤回)"""
+    if req.status < 0 or req.status > 5:
+        return fail(BizError.VALIDATION_ERROR, "状态值非法 (应为 0-5)")
 
     application = db.get(JobApplication, application_id)
     if application is None:
@@ -472,7 +487,7 @@ async def employer_application_summary(
             "active_jobs": active_job_count,
             "total_jobs": len(jobs),
             "total_applications": 0,
-            "by_status": {"0": 0, "1": 0, "2": 0, "3": 0, "4": 0},
+            "by_status": {"0": 0, "1": 0, "2": 0, "3": 0, "4": 0, "5": 0},
         })
 
     # 按状态分组统计投递
@@ -481,7 +496,7 @@ async def employer_application_summary(
             JobApplication.job_id.in_(job_ids)
         ).group_by(JobApplication.status)
     ).all()
-    by_status = {"0": 0, "1": 0, "2": 0, "3": 0, "4": 0}
+    by_status = {"0": 0, "1": 0, "2": 0, "3": 0, "4": 0, "5": 0}
     total_app = 0
     for status, cnt in rows:
         by_status[str(status)] = cnt
@@ -548,3 +563,31 @@ async def employer_application_trend(
         "counts": [daily_counts[d] for d in day_labels],
         "job_distribution": job_distribution,
     })
+
+
+@router.post("/{application_id}/withdraw", summary="撤回投递", response_model=None)
+async def withdraw_application(
+    application_id: int,
+    current_user: SysUser = Depends(require_role("ROLE_SEEKER")),
+    db: Session = Depends(get_db),
+):
+    """求职者撤回自己的投递 (仅限 status=0 已投递状态)"""
+    application = db.get(JobApplication, application_id)
+    if application is None:
+        return fail(BizError.RESOURCE_NOT_FOUND, "投递记录不存在")
+    if application.applicant_id != current_user.id:
+        return fail(BizError.ROLE_FORBIDDEN, "无权操作非本人的投递记录")
+    if application.status != 0:
+        return fail(BizError.VALIDATION_ERROR, '仅可撤回状态为"已投递"的投递记录')
+
+    try:
+        application.status = 5
+        db.commit()
+        db.refresh(application)
+        return success(
+            data={"id": application.id, "status": application.status},
+            message="投递已撤回",
+        )
+    except Exception as e:
+        db.rollback()
+        return fail(BizError.SYSTEM_ERROR, f"撤回失败: {e}")

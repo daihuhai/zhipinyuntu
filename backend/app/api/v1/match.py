@@ -6,11 +6,12 @@
 """
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.deps import get_current_user, require_role
+from app.core.limiter import limiter
 from app.db.base import get_db
 from app.models.match import MatchRecord
 from app.models.user import SysUser
@@ -22,7 +23,7 @@ from app.services.match_service import match_service
 router = APIRouter(prefix="/match", tags=["智能匹配"])
 
 
-def _job_to_dict(job) -> dict[str, Any]:
+def _job_to_dict(job, application_count: int = 0) -> dict[str, Any]:
     return {
         "id": job.id,
         "title": job.title,
@@ -37,6 +38,7 @@ def _job_to_dict(job) -> dict[str, Any]:
             {"skill_name": r.skill_name, "req_type": r.req_type}
             for r in job.requirements
         ],
+        "application_count": application_count,
     }
 
 
@@ -62,17 +64,38 @@ def _resume_to_dict(resume) -> dict[str, Any]:
 
 
 @router.get("/resume/{resume_id}/jobs", summary="简历推荐职位")
+@limiter.limit("10/minute")
 def recommend_jobs(
+    request: Request,
     resume_id: int,
     top_k: int = Query(10, ge=1, le=50),
     current_user: SysUser = Depends(require_role("ROLE_SEEKER", "ROLE_ADMIN")),
     db: Session = Depends(get_db),
 ):
     """为求职者简历推荐匹配职位 (召回→粗排→精排)"""
-    results = match_service.recommend_jobs_for_resume(resume_id, db, top_k=top_k)
+    from sqlalchemy import func
+
+    resume = db.get(Resume, resume_id)
+    if not resume:
+        results = match_service.recommend_jobs_cold_start(current_user.id, db, top_k=top_k)
+    else:
+        results = match_service.recommend_jobs_for_resume(resume_id, db, top_k=top_k)
+
+    # 批量查询职位的投递数
+    job_ids = [item["job"].id for item in results]
+    app_counts = {}
+    if job_ids:
+        from app.models.application import JobApplication
+        rows = db.execute(
+            select(JobApplication.job_id, func.count())
+            .where(JobApplication.job_id.in_(job_ids))
+            .group_by(JobApplication.job_id)
+        ).all()
+        app_counts = {jid: cnt for jid, cnt in rows}
+
     data = [
         {
-            "job": _job_to_dict(item["job"]),
+            "job": _job_to_dict(item["job"], application_count=app_counts.get(item["job"].id, 0)),
             "total_score": item["total_score"],
             "skill_score": item["skill_score"],
             "exp_score": item["exp_score"],
@@ -84,11 +107,27 @@ def recommend_jobs(
         }
         for item in results
     ]
+
+    # 记录 AI 匹配操作日志
+    try:
+        from app.services.admin_service import admin_service
+        admin_service.write_system_log(
+            db,
+            action="AI_MATCH_RECOMMEND",
+            target_type="resume",
+            target_id=resume_id,
+            detail=f"大模型推荐职位: 简历ID={resume_id}, 返回{len(data)}条结果",
+        )
+    except Exception:
+        pass
+
     return success(data={"items": data, "total": len(data)})
 
 
 @router.get("/job/{job_id}/resumes", summary="职位推荐候选人")
+@limiter.limit("10/minute")
 def recommend_resumes(
+    request: Request,
     job_id: int,
     top_k: int = Query(10, ge=1, le=50),
     current_user: SysUser = Depends(require_role("ROLE_EMPLOYER", "ROLE_ADMIN")),
@@ -119,11 +158,27 @@ def recommend_resumes(
         }
         for item in results
     ]
+
+    # 记录 AI 匹配操作日志
+    try:
+        from app.services.admin_service import admin_service
+        admin_service.write_system_log(
+            db,
+            action="AI_MATCH_RECOMMEND",
+            target_type="job",
+            target_id=job_id,
+            detail=f"大模型推荐候选人: 职位ID={job_id}, 返回{len(data)}条结果",
+        )
+    except Exception:
+        pass
+
     return success(data={"items": data, "total": len(data)})
 
 
 @router.get("/score", summary="获取简历与岗位的匹配分")
+@limiter.limit("30/minute")
 def get_match_score(
+    request: Request,
     resume_id: int = Query(..., description="简历ID"),
     job_id: int = Query(..., description="职位ID"),
     current_user: SysUser = Depends(get_current_user),

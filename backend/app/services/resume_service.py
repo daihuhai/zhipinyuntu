@@ -81,6 +81,19 @@ class ResumeService:
             except Exception:
                 pass  # 图谱同步失败不影响主流程
 
+            # 7. 记录 AI 解析操作日志
+            try:
+                from app.services.admin_service import admin_service
+                admin_service.write_system_log(
+                    db,
+                    action="AI_RESUME_PARSE",
+                    target_type="resume",
+                    target_id=resume.id,
+                    detail=f"大模型解析简历: {resume.name or '未知'} (ID:{resume.id}), 文件: {file_info['url']}",
+                )
+            except Exception:
+                pass  # 日志写入失败不影响主流程
+
             return {
                 "resume_id": resume.id,
                 "parse_status": resume.parse_status,
@@ -90,6 +103,18 @@ class ResumeService:
             resume.parse_status = 3  # 失败
             resume.parse_error = str(e)[:500]
             db.commit()
+            # 记录解析失败日志
+            try:
+                from app.services.admin_service import admin_service
+                admin_service.write_system_log(
+                    db,
+                    action="AI_RESUME_PARSE_FAILED",
+                    target_type="resume",
+                    target_id=resume.id,
+                    detail=f"大模型解析失败: {str(e)[:200]}",
+                )
+            except Exception:
+                pass
             raise
 
     def _fill_resume_fields(self, resume: Resume, parsed: dict[str, Any]) -> None:

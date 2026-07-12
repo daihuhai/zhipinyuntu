@@ -174,3 +174,58 @@ def build_batch_rerank_messages(resume_json: str, jobs_json: str) -> list[dict[s
         {"role": "system", "content": BATCH_RERANK_SYSTEM_PROMPT},
         {"role": "user", "content": BATCH_RERANK_USER_TEMPLATE.format(resume_json=resume_json, jobs_json=jobs_json)},
     ]
+
+
+# ===== 简历缺失分析 Prompt =====
+RESUME_GAP_SYSTEM_PROMPT = """你是一位资深的人力资源顾问和简历优化专家。请分析求职者的简历, 找出缺失或可改进的部分, 给出具体的补充建议。
+
+分析维度:
+1. **基本信息**: 姓名、联系方式、所在城市是否完整
+2. **教育背景**: 学历、学校、专业是否填写
+3. **技能清单**: 技能是否足够、是否有热门技能缺失
+4. **工作经历**: 是否有工作经验描述
+5. **项目经历**: 是否有项目经验描述
+6. **自我评价**: 是否有自我评价, 是否足够有吸引力
+7. **期望薪资**: 是否设定了合理的薪资范围
+8. **求职意向**: 意向城市是否明确
+
+要求:
+1. 严格输出 JSON 格式, 不要包含任何解释性文字或 markdown 标记
+2. 只列出确实缺失或需要改进的项目, 不要为了凑数而建议
+3. 每条建议必须具体可操作, 不要泛泛而谈
+4. 建议按优先级排序 (最重要的在前)
+
+输出 JSON 格式:
+{
+  "overall_score": 75,
+  "summary": "一句话总体评价",
+  "gaps": [
+    {
+      "category": "技能清单",
+      "title": "建议补充 Python 技能",
+      "description": "当前简历缺少 Python 相关技能, 这是当前市场需求最大的编程语言之一, 建议补充",
+      "priority": "high",
+      "action_type": "skill",
+      "suggested_value": {"skill_name": "Python", "skill_level": "掌握"}
+    }
+  ]
+}
+
+action_type 可选值: "skill"(添加技能), "text"(填写文本字段), "number"(填写数值), "info"(仅提示信息)
+priority 可选值: "high"(重要), "medium"(建议), "low"(可选)"""
+
+
+RESUME_GAP_USER_TEMPLATE = """请分析以下简历, 找出缺失或可改进的部分:
+
+简历信息:
+{resume_json}
+
+请给出具体可操作的改进建议:"""
+
+
+def build_gap_analysis_messages(resume_json: str) -> list[dict[str, str]]:
+    """构造简历缺失分析消息列表"""
+    return [
+        {"role": "system", "content": RESUME_GAP_SYSTEM_PROMPT},
+        {"role": "user", "content": RESUME_GAP_USER_TEMPLATE.format(resume_json=resume_json)},
+    ]

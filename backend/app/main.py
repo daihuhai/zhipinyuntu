@@ -3,14 +3,18 @@
 基于文档智能解析的人岗匹配平台
 """
 import logging
+import secrets
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from app.core.config import settings
+from app.core.limiter import limiter
 from app.api.v1 import api_router
 
 
@@ -38,23 +42,28 @@ async def lifespan(app: FastAPI):
     init_db()
     logger.info("✅ 数据库表已就绪")
 
-    # 创建默认管理员账号 (仅当不存在时)
+    # 创建默认管理员账号 (仅当不存在时, 使用随机强密码)
     with SessionLocal() as db:
         from sqlalchemy import select
         admin = db.execute(
             select(SysUser).where(SysUser.role == "ROLE_ADMIN")
         ).scalar_one_or_none()
         if admin is None:
+            # 生成随机强密码 (12 位, 字母+数字)
+            admin_password = secrets.token_urlsafe(9)[:12]
             admin = SysUser(
                 username="admin",
-                password_hash=hash_password("admin123"),
+                password_hash=hash_password(admin_password),
                 role="ROLE_ADMIN",
                 nickname="系统管理员",
                 status=1,
             )
             db.add(admin)
             db.commit()
-            logger.info("✅ 默认管理员已创建 (admin / admin123)")
+            logger.info("✅ 默认管理员已创建")
+            logger.info(f"   账号: admin")
+            logger.info(f"   密码: {admin_password}")
+            logger.info(f"   ⚠️  请立即修改密码并妥善保存, 此密码仅显示一次")
         else:
             logger.info("✅ 管理员账号已存在")
 
@@ -68,19 +77,23 @@ app = FastAPI(
     title=settings.APP_NAME,
     description="基于文档智能解析的人岗匹配平台 - B/S 架构",
     version=settings.APP_VERSION,
-    docs_url="/docs",
-    redoc_url="/redoc",
-    openapi_url="/openapi.json",
+    docs_url="/docs" if settings.APP_DEBUG else None,
+    redoc_url="/redoc" if settings.APP_DEBUG else None,
+    openapi_url="/openapi.json" if settings.APP_DEBUG else None,
     lifespan=lifespan,
 )
 
-# ===== CORS 中间件 (前后端联调) =====
+# ===== 速率限制异常处理 =====
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# ===== CORS 中间件 (收紧: 仅允许必要方法和头部) =====
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+    allow_headers=["Authorization", "Content-Type", "X-Trace-Id", "X-Requested-With"],
 )
 
 

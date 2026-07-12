@@ -45,6 +45,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '我的简历', role: 'ROLE_SEEKER' },
       },
       {
+        path: 'resume/:id/edit',
+        name: 'SeekerResumeEdit',
+        component: () => import('@/views/seeker/ResumeEdit.vue'),
+        meta: { title: '编辑简历', role: 'ROLE_SEEKER' },
+      },
+      {
         path: 'jobs',
         name: 'SeekerJobs',
         component: () => import('@/views/seeker/Jobs.vue'),

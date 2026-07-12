@@ -49,6 +49,12 @@
               </div>
             </div>
             <div class="rec-score">
+              <div class="score-header">
+                <span class="score-title">AI 综合匹配度</span>
+                <el-tooltip content="基于六维度加权计算: 技能(40%) + 经验(20%) + 学历(15%) + 城市(10%) + 薪资(10%) + 项目(5%), 由豆包大模型精排得出" placement="top">
+                  <el-icon class="score-info-icon"><InfoFilled /></el-icon>
+                </el-tooltip>
+              </div>
               <el-progress :percentage="item.total_score" :color="scoreColor(item.total_score)" :stroke-width="14" :format="(p: number) => p.toFixed(1)" />
             </div>
           </div>
@@ -199,7 +205,7 @@
 import { onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Refresh, ChatLineRound, View, Document, MagicStick } from '@element-plus/icons-vue'
+import { Refresh, ChatLineRound, View, Document, MagicStick, InfoFilled } from '@element-plus/icons-vue'
 import { jobApi } from '@/api/job'
 import { matchApi } from '@/api/match'
 import { resumeApi } from '@/api/resume'
@@ -397,6 +403,9 @@ onMounted(fetchJobs)
 .rec-name { font-size: 16px; font-weight: 600; }
 .rec-meta { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
 .rec-score { width: 200px; flex-shrink: 0; }
+.score-header { display: flex; align-items: center; gap: 4px; margin-bottom: 4px; }
+.score-title { font-size: 12px; color: var(--text-secondary); font-weight: 500; }
+.score-info-icon { font-size: 14px; color: #909399; cursor: pointer; }
 .rec-skills { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
 .rec-dims { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
 .rec-reason {

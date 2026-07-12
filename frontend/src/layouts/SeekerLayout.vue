@@ -121,4 +121,13 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
 .main { background: var(--bg-page); padding: 20px; overflow-y: auto; }
 .menu-badge :deep(.el-badge__content) { background-color: #f56c6c; border: none; font-size: 11px; height: 18px; line-height: 18px; }
 :deep(.el-menu-item) { caret-color: transparent; user-select: none; }
+
+@media (max-width: 768px) {
+  .sidebar { width: 0 !important; }
+  .layout { flex-direction: column; }
+  .header { padding: 0 10px; }
+  .main { padding: 10px; }
+  .page-title { font-size: 14px; }
+  .username { display: none; }
+}
 </style>

@@ -1,6 +1,9 @@
 <template>
   <div class="dc-panel">
-    <div class="dc-panel-title">热门技能词云</div>
+    <div class="dc-panel-title">
+      <span>热门技能词云</span>
+      <el-tag size="small" type="success" effect="dark" class="live-tag">实时</el-tag>
+    </div>
     <div ref="chartRef" class="wordcloud-chart"></div>
   </div>
 </template>
@@ -118,7 +121,11 @@ watch(() => props.skills, render, { deep: true })
   color: #a78bfa;
   margin-bottom: 12px;
   letter-spacing: 1px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
+.live-tag { font-size: 10px; }
 .wordcloud-chart {
   height: 320px;
 }

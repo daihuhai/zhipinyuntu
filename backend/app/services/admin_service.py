@@ -332,13 +332,14 @@ class AdminService:
     def write_log(
         self,
         db: Session,
-        admin_id: int,
+        admin_id: int | None,
         action: str,
         target_type: str | None = None,
         target_id: int | None = None,
         detail: str | None = None,
         ip: str | None = None,
     ) -> None:
+        """写入操作日志 (admin_id 可空, 用于系统自动操作如 AI 调用)"""
         log = AdminLog(
             admin_id=admin_id,
             action=action,
@@ -346,6 +347,26 @@ class AdminService:
             target_id=target_id,
             detail=detail,
             ip=ip,
+        )
+        db.add(log)
+        db.commit()
+
+    def write_system_log(
+        self,
+        db: Session,
+        action: str,
+        detail: str,
+        target_type: str | None = None,
+        target_id: int | None = None,
+    ) -> None:
+        """记录系统级操作 (AI 调用/数据导出等, 无需管理员发起)"""
+        log = AdminLog(
+            admin_id=None,
+            action=action,
+            target_type=target_type,
+            target_id=target_id,
+            detail=detail,
+            ip="system",
         )
         db.add(log)
         db.commit()
@@ -470,6 +491,36 @@ class AdminService:
         ).all()
         hot_skills = [{"name": name, "count": cnt} for name, cnt in hot_skills_rows]
 
+        # 5. 简历解析次数趋势 (近 14 天, 从 admin_log 统计 AI_RESUME_PARSE)
+        from app.models.log import AdminLog
+        parse_logs = db.execute(
+            select(AdminLog.created_at, AdminLog.action)
+            .where(AdminLog.action.in_([
+                "AI_RESUME_PARSE", "AI_RESUME_PARSE_FAILED",
+                "AI_GAP_ANALYSIS", "AI_MATCH_RECOMMEND"
+            ]))
+        ).all()
+        parse_daily = {d.strftime("%Y-%m-%d"): 0 for d in days}
+        ai_call_counts = {"AI_RESUME_PARSE": 0, "AI_RESUME_PARSE_FAILED": 0,
+                          "AI_GAP_ANALYSIS": 0, "AI_MATCH_RECOMMEND": 0}
+        for log_ts, log_action in parse_logs:
+            if log_ts:
+                key = log_ts.strftime("%Y-%m-%d")
+                if key in parse_daily and log_action == "AI_RESUME_PARSE":
+                    parse_daily[key] += 1
+                if log_action in ai_call_counts:
+                    ai_call_counts[log_action] += 1
+
+        # 6. AI Token 消耗估算 (基于操作次数 × 单次估算 token)
+        TOKEN_ESTIMATE = {
+            "AI_RESUME_PARSE": 3500,       # 简历解析: 输入简历文本 + 输出结构化 JSON
+            "AI_RESUME_PARSE_FAILED": 800,  # 失败也消耗了部分 token
+            "AI_GAP_ANALYSIS": 2500,        # 缺失分析: 输入简历 + 输出建议
+            "AI_MATCH_RECOMMEND": 1500,     # 匹配推荐: 输入简历+岗位 + 输出评分
+        }
+        ai_token_total = sum(ai_call_counts[k] * TOKEN_ESTIMATE[k] for k in ai_call_counts)
+        ai_call_total = sum(ai_call_counts.values())
+
         return {
             "user_growth": {
                 "days": day_labels,
@@ -485,6 +536,24 @@ class AdminService:
                 "values": [job_status[k] for k in ["0", "1", "2"]],
             },
             "hot_skills": hot_skills,
+            "resume_parse_trend": {
+                "days": day_labels,
+                "values": [parse_daily[d.strftime("%Y-%m-%d")] for d in days],
+            },
+            "ai_usage": {
+                "total_calls": ai_call_total,
+                "total_tokens": ai_token_total,
+                "breakdown": [
+                    {"label": "简历解析", "count": ai_call_counts["AI_RESUME_PARSE"],
+                     "tokens": ai_call_counts["AI_RESUME_PARSE"] * TOKEN_ESTIMATE["AI_RESUME_PARSE"]},
+                    {"label": "解析失败", "count": ai_call_counts["AI_RESUME_PARSE_FAILED"],
+                     "tokens": ai_call_counts["AI_RESUME_PARSE_FAILED"] * TOKEN_ESTIMATE["AI_RESUME_PARSE_FAILED"]},
+                    {"label": "缺失分析", "count": ai_call_counts["AI_GAP_ANALYSIS"],
+                     "tokens": ai_call_counts["AI_GAP_ANALYSIS"] * TOKEN_ESTIMATE["AI_GAP_ANALYSIS"]},
+                    {"label": "智能匹配", "count": ai_call_counts["AI_MATCH_RECOMMEND"],
+                     "tokens": ai_call_counts["AI_MATCH_RECOMMEND"] * TOKEN_ESTIMATE["AI_MATCH_RECOMMEND"]},
+                ],
+            },
         }
 
     # ===== 大数据中心扩展接口 =====

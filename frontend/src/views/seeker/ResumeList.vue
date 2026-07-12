@@ -26,10 +26,12 @@
         <el-table-column prop="created_at" label="上传时间" min-width="160">
           <template #default="{ row }">{{ formatDate(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="320" fixed="right">
+        <el-table-column label="操作" width="380" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="showDetail(row)">查看详情</el-button>
-            <el-button link type="success" @click="$router.push(`/seeker/graph?resume_id=${row.id}`)">能力图谱</el-button>
+            <el-button link type="primary" @click="previewFile(row)">预览</el-button>
+            <el-button link type="success" @click="$router.push(`/seeker/resume/${row.id}/edit`)">编辑</el-button>
+            <el-button link type="info" @click="$router.push(`/seeker/graph?resume_id=${row.id}`)">能力图谱</el-button>
             <el-button link type="warning" @click="$router.push(`/seeker/recommend?resume_id=${row.id}`)">推荐职位</el-button>
             <el-button link type="danger" @click="handleDelete(row.id)">删除</el-button>
           </template>
@@ -176,6 +178,18 @@ const viewOriginalFile = async () => {
   }
 }
 
+const previewFile = async (row: any) => {
+  const res: any = await resumeApi.getFile(row.id)
+  const url = res.data?.doc_url || ''
+  if (!url) { ElMessage.warning('文件不存在'); return }
+  const fullUrl = url.startsWith('http') ? url : window.location.origin + url
+  if (fullUrl.endsWith('.pdf')) {
+    window.open(fullUrl, '_blank')
+  } else {
+    window.open(`https://docs.google.com/viewer?url=${encodeURIComponent(fullUrl)}&embedded=true`, '_blank')
+  }
+}
+
 const statusText = (s: number) => ({ 0: '待解析', 1: '解析中', 2: '成功', 3: '失败' }[s] || '未知')
 const statusTag = (s: number): any => ({ 0: 'info', 1: 'warning', 2: 'success', 3: 'danger' }[s] || 'info')
 const levelTagType = (l?: string): any => {
@@ -191,10 +205,18 @@ const formatDate = (iso?: string) => {
 }
 
 const handleDelete = async (id: number) => {
-  await ElMessageBox.confirm('确认删除该简历?', '提示', { type: 'warning' })
-  await resumeApi.remove(id)
-  ElMessage.success('已删除')
-  fetchList()
+  try {
+    await ElMessageBox.confirm('确认删除该简历?', '提示', { type: 'warning' })
+  } catch {
+    return // 用户点击取消, 不报错
+  }
+  try {
+    await resumeApi.remove(id)
+    ElMessage.success('已删除')
+    fetchList()
+  } catch (e: any) {
+    ElMessage.error(e?.message || '删除失败')
+  }
 }
 
 onMounted(fetchList)

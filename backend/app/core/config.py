@@ -1,4 +1,5 @@
 """智聘云图全局配置 - 基于 pydantic-settings 管理"""
+import warnings
 from typing import List
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -76,3 +77,16 @@ class Settings(BaseSettings):
 
 # 全局单例
 settings = Settings()
+
+# ===== 安全校验: SECRET_KEY 不能为默认值 (生产环境强制) =====
+_INSECURE_SECRET_KEYS = {"change-me", "", "secret", "test"}
+if settings.SECRET_KEY in _INSECURE_SECRET_KEYS:
+    if settings.is_production:
+        raise RuntimeError(
+            "生产环境 SECRET_KEY 不能使用默认值, 请在 .env 中设置随机密钥: "
+            "python -c \"import secrets; print(secrets.token_urlsafe(48))\""
+        )
+    warnings.warn(
+        "⚠️  SECRET_KEY 使用默认值, 生产环境将拒绝启动! "
+        "请执行: python -c \"import secrets; print(secrets.token_urlsafe(48))\""
+    )

@@ -28,14 +28,25 @@ const form = reactive({
 })
 
 const rules: FormRules = {
-  username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
+  username: [
+    { required: true, message: '请输入用户名', trigger: 'blur' },
+    { min: 3, max: 64, message: '用户名长度 3-64 位', trigger: 'blur' },
+  ],
   phone: [
     { required: true, message: '请输入手机号', trigger: 'blur' },
     { pattern: /^1[3-9]\d{9}$/, message: '手机号格式不正确', trigger: 'blur' },
   ],
   password: [
     { required: true, message: '请输入密码', trigger: 'blur' },
-    { min: 6, max: 20, message: '密码长度 6-20 位', trigger: 'blur' },
+    { min: 8, max: 64, message: '密码长度 8-64 位', trigger: 'blur' },
+    {
+      validator: (_rule, value, callback) => {
+        if (!/[A-Za-z]/.test(value)) callback(new Error('密码必须包含至少一个字母'))
+        else if (!/\d/.test(value)) callback(new Error('密码必须包含至少一个数字'))
+        else callback()
+      },
+      trigger: 'blur',
+    },
   ],
   confirmPassword: [
     { required: true, message: '请确认密码', trigger: 'blur' },
@@ -50,6 +61,22 @@ const rules: FormRules = {
   company_name: [{ required: true, message: '请输入企业名称', trigger: 'blur' }],
   credit_code: [{ required: true, message: '请输入统一社会信用代码', trigger: 'blur' }],
 }
+
+// 密码强度计算 (0-4)
+const passwordStrength = ref(0)
+const calcStrength = (pwd: string) => {
+  let score = 0
+  if (pwd.length >= 8) score++
+  if (pwd.length >= 12) score++
+  if (/[A-Z]/.test(pwd) && /[a-z]/.test(pwd)) score++
+  if (/\d/.test(pwd) && /[^A-Za-z0-9]/.test(pwd)) score++
+  return Math.min(score, 4)
+}
+const onPasswordInput = () => {
+  passwordStrength.value = calcStrength(form.password)
+}
+const strengthLabels = ['弱', '弱', '中', '强', '极强']
+const strengthColors = ['#ff4d4f', '#ff4d4f', '#faad14', '#52c41a', '#52c41a']
 
 const handleRegister = async () => {
   if (!formRef.value) return
@@ -220,38 +247,21 @@ const handleRegister = async () => {
             <el-input v-model="form.email" placeholder="邮箱 (选填)" :prefix-icon="Message" clearable />
           </el-form-item>
           <el-form-item prop="password">
-            <el-input v-model="form.password" type="password" placeholder="密码 (6-20位)" :prefix-icon="Lock" show-password />
+            <el-input v-model="form.password" type="password" placeholder="密码 (至少8位, 含字母+数字)" :prefix-icon="Lock" show-password @input="onPasswordInput" />
           </el-form-item>
 
           <!-- 密码强度提示 -->
           <div class="pwd-strength" v-if="form.password">
             <div class="strength-bars">
               <span
+                v-for="i in 4"
+                :key="i"
                 class="bar"
-                :class="form.password.length >= 6 ? (
-                  /[^A-Za-z0-9]/.test(form.password) && (/[a-z]/.test(form.password) || /[A-Z]/.test(form.password)) && /\d/.test(form.password) && form.password.length >= 8 ? 'strong' :
-                  ((/[a-z]/.test(form.password) || /[A-Z]/.test(form.password)) && (/\d/.test(form.password) || /[^A-Za-z0-9]/.test(form.password))) ? 'medium' : 'weak'
-                ) : 'weak'"
-              ></span>
-              <span
-                class="bar"
-                :class="form.password.length >= 6 && ((/[a-z]/.test(form.password) || /[A-Z]/.test(form.password)) && (/\d/.test(form.password) || /[^A-Za-z0-9]/.test(form.password))) ? (
-                  /[^A-Za-z0-9]/.test(form.password) && (/[a-z]/.test(form.password) || /[A-Z]/.test(form.password)) && /\d/.test(form.password) && form.password.length >= 8 ? 'strong' : 'medium'
-                ) : ''"
-              ></span>
-              <span
-                class="bar"
-                :class="/[^A-Za-z0-9]/.test(form.password) && (/[a-z]/.test(form.password) || /[A-Z]/.test(form.password)) && /\d/.test(form.password) && form.password.length >= 8 ? 'strong' : ''"
+                :style="{ backgroundColor: passwordStrength >= i ? strengthColors[passwordStrength] : 'rgba(255,255,255,0.15)' }"
               ></span>
             </div>
-            <span class="strength-label" :class="form.password.length < 6 ? 'weak' : (
-              /[^A-Za-z0-9]/.test(form.password) && (/[a-z]/.test(form.password) || /[A-Z]/.test(form.password)) && /\d/.test(form.password) && form.password.length >= 8 ? 'strong' :
-              ((/[a-z]/.test(form.password) || /[A-Z]/.test(form.password)) && (/\d/.test(form.password) || /[^A-Za-z0-9]/.test(form.password))) ? 'medium' : 'weak'
-            )">
-              {{ form.password.length < 6 ? '弱' : (
-                /[^A-Za-z0-9]/.test(form.password) && (/[a-z]/.test(form.password) || /[A-Z]/.test(form.password)) && /\d/.test(form.password) && form.password.length >= 8 ? '强' :
-                ((/[a-z]/.test(form.password) || /[A-Z]/.test(form.password)) && (/\d/.test(form.password) || /[^A-Za-z0-9]/.test(form.password))) ? '中' : '弱'
-              ) }}
+            <span class="strength-label" :style="{ color: strengthColors[passwordStrength] }">
+              {{ strengthLabels[passwordStrength] }}
             </span>
           </div>
 

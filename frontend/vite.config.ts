@@ -20,6 +20,7 @@ export default defineConfig({
       '/api': {
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
+        timeout: 600000,  // 简历解析等耗时操作需 10 分钟
       },
       // 简历原文件 (PDF/DOC) 由后端 StaticFiles 挂载在 /uploads, 需代理否则 404
       '/uploads': {
@@ -27,5 +28,19 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id: string) {
+          if (id.includes('node_modules')) {
+            if (id.includes('vue') || id.includes('pinia')) return 'vendor-vue'
+            if (id.includes('element-plus') || id.includes('@element-plus')) return 'vendor-ui'
+            if (id.includes('echarts')) return 'vendor-echarts'
+          }
+        },
+      },
+    },
+    chunkSizeWarningLimit: 1000,
   },
 })

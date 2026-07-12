@@ -20,8 +20,8 @@ class JobApplication(Base):
     resume_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("resume.id"), nullable=False)
     job_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("job.id"), nullable=False)
     applicant_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("sys_user.id"), nullable=False, comment="投递人(求职者)")
-    # 状态: 0=已投递 1=已查看 2=面试邀请 3=不合适 4=已录用
-    status: Mapped[int] = mapped_column(SmallInteger, default=0, comment="0=已投递 1=已查看 2=面试邀请 3=不合适 4=已录用")
+    # 状态: 0=已投递 1=已查看 2=面试邀请 3=不合适 4=已录用 5=已撤回
+    status: Mapped[int] = mapped_column(SmallInteger, default=0, comment="0=已投递 1=已查看 2=面试邀请 3=不合适 4=已录用 5=已撤回")
     cover_letter: Mapped[str | None] = mapped_column(Text, nullable=True, comment="求职信")
 
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

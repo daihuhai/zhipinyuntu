@@ -65,4 +65,13 @@ const handleLogout = () => { userStore.logout(); router.push('/login') }
 .username { font-size: 14px; }
 .main { background: var(--bg-page); padding: 20px; overflow-y: auto; }
 :deep(.el-menu-item) { caret-color: transparent; user-select: none; }
+
+@media (max-width: 768px) {
+  .sidebar { width: 0 !important; }
+  .layout { flex-direction: column; }
+  .header { padding: 0 10px; }
+  .main { padding: 10px; }
+  .page-title { font-size: 14px; }
+  .username { display: none; }
+}
 </style>

@@ -395,7 +395,9 @@ async def list_logs(
 @router.get("/export/{module}", summary="导出数据 (CSV)")
 async def export_data(
     module: str,
+    current_user: SysUser = Depends(require_role("ROLE_ADMIN")),
     db: Session = Depends(get_db),
+    request: Request = None,
 ):
     """导出用户/简历/职位数据为 CSV (带 BOM 头避免 Excel 中文乱码)
     module: users | resumes | jobs
@@ -455,6 +457,18 @@ async def export_data(
     # 文件名带日期
     filename = f"{module}_{datetime.now().strftime('%Y%m%d')}.csv"
     content = buf.getvalue().encode("utf-8")
+
+    # 记录导出操作日志
+    try:
+        row_count = len(rows) if 'rows' in dir() else 0
+        admin_service.write_log(
+            db, current_user.id, "EXPORT_DATA",
+            target_type=module,
+            detail=f"导出 {module} 数据 {row_count} 条, 文件: {filename}",
+            ip=request.client.host if request else None,
+        )
+    except Exception:
+        pass
 
     def _iter():
         yield content

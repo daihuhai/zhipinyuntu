@@ -480,6 +480,56 @@ class MatchService:
 
         return ranked
 
+    # ============ 4b. 冷启动推荐 (无简历时) ============
+    def recommend_jobs_cold_start(
+        self, user_id: int, db: Session, top_k: int = 10
+    ) -> list[dict[str, Any]]:
+        """冷启动推荐: 无简历时按求职者意向城市+职位类别推荐热门职位"""
+        from app.models.user import SysUser
+        from sqlalchemy import func
+
+        user = db.get(SysUser, user_id)
+        if not user:
+            return []
+
+        # 查询所有招聘中的职位
+        jobs = list(db.execute(
+            select(Job)
+            .options(selectinload(Job.requirements))
+            .where(Job.status == 1)
+        ).scalars())
+
+        if not jobs:
+            return []
+
+        # 按投递数排序 (热门度)
+        job_app_counts = {}
+        app_rows = db.execute(
+            select(JobApplication.job_id, func.count())
+            .where(JobApplication.job_id.in_([j.id for j in jobs]))
+            .group_by(JobApplication.job_id)
+        ).all()
+        for jid, cnt in app_rows:
+            job_app_counts[jid] = cnt
+
+        # 简单排序: 投递数多的优先
+        sorted_jobs = sorted(jobs, key=lambda j: job_app_counts.get(j.id, 0), reverse=True)
+
+        results = []
+        for job in sorted_jobs[:top_k]:
+            results.append({
+                "job": job,
+                "total_score": 50.0,  # 冷启动默认中等分
+                "skill_score": 0.5,
+                "exp_score": 0.5,
+                "edu_score": 0.5,
+                "city_score": 0.5,
+                "salary_score": 0.5,
+                "proj_score": 0.5,
+                "match_reason": "热门推荐 (完善简历后获得精准匹配)",
+            })
+        return results
+
     # ============ 5. 主入口: 职位推荐候选人 ============
     def recommend_resumes_for_job(
         self, job_id: int, db: Session, top_k: int = 10

@@ -52,7 +52,11 @@
       </transition>
     </el-card>
 
-    <div v-loading="loading" class="job-grid">
+    <div class="job-grid">
+      <!-- 骨架屏: 首次加载时显示 -->
+      <SkeletonList v-if="loading && !list.length" :count="6" />
+      <!-- 职位列表 -->
+      <template v-else>
       <el-card v-for="job in list" :key="job.id" shadow="hover" class="job-card" @click="goDetail(job.id)">
         <div class="job-card-inner">
           <div class="job-top">
@@ -74,6 +78,7 @@
         </div>
       </el-card>
       <el-empty v-if="!loading && !list.length" description="暂无符合条件的职位, 试试调整筛选条件" />
+      </template>
     </div>
 
     <el-pagination
@@ -94,6 +99,7 @@ import { useRouter } from 'vue-router'
 import { Search, ArrowDown, ArrowUp, RefreshLeft } from '@element-plus/icons-vue'
 import { jobApi } from '@/api/job'
 import { formatSalary } from '@/utils/format'
+import SkeletonList from '@/components/SkeletonList.vue'
 
 const router = useRouter()
 const list = ref<any[]>([])
@@ -194,4 +200,9 @@ onMounted(fetchList)
 .job-meta { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
 .job-desc { font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
 .job-footer { margin-top: 12px; padding-top: 10px; border-top: 1px solid #f5f5f5; display: flex; justify-content: flex-end; }
+
+@media (max-width: 768px) {
+  .job-card { margin: 0; }
+  .el-col { flex: 0 0 100%; max-width: 100%; }
+}
 </style>

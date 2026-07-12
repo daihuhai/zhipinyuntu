@@ -5,12 +5,14 @@ import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { User, Lock } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { authApi, healthApi } from '@/api/auth'
+import ForgotPasswordDialog from '@/components/ForgotPasswordDialog.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
 
 const formRef = ref<FormInstance>()
 const loading = ref(false)
+const forgotDialogRef = ref<InstanceType<typeof ForgotPasswordDialog>>()
 const healthStatus = ref<string>('')
 
 const form = reactive({
@@ -187,7 +189,7 @@ const checkHealth = async () => {
           </el-form-item>
           <div class="form-options">
             <el-checkbox v-model="form.remember">记住我</el-checkbox>
-            <el-link type="primary" :underline="false">忘记密码?</el-link>
+            <el-link type="primary" :underline="false" @click="forgotDialogRef?.open()">忘记密码?</el-link>
           </div>
           <el-button
             type="primary"
@@ -215,6 +217,9 @@ const checkHealth = async () => {
         </div>
       </div>
     </div>
+
+    <!-- 忘记密码弹窗 -->
+    <ForgotPasswordDialog ref="forgotDialogRef" />
   </div>
 </template>
 

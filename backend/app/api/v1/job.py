@@ -27,6 +27,7 @@ from app.schemas.job import JobCreateRequest
 from app.services.job_service import job_service
 from app.services.file_service import file_service
 from app.services.doc_parser import doc_parser
+from app.services.cache_service import cache_service
 
 router = APIRouter(prefix="/jobs", tags=["职位"])
 
@@ -124,6 +125,8 @@ def create_job(
     try:
         data = req.model_dump(exclude_none=False)
         job = job_service.create(data, current_user.id, db)
+        # 清除职位广场缓存
+        cache_service.delete_pattern("jobs:plaza:*")
         return success(
             data={"job_id": job.id, "title": job.title},
             message="职位创建成功",
@@ -192,7 +195,13 @@ async def job_plaza(
     current_user: SysUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """职位广场 (所有招聘中职位, 分页, 支持多条件筛选)"""
+    """职位广场 (所有招聘中职位, 分页, 支持多条件筛选) - Redis 缓存 5 分钟"""
+    # 缓存 key: 包含所有筛选参数
+    cache_key = f"jobs:plaza:{page}:{size}:{keyword}:{city}:{job_type}:{experience}:{education}:{salary_min}:{salary_max}"
+    cached = cache_service.get(cache_key)
+    if cached is not None:
+        return success(data=cached)
+
     result = job_service.list_public(
         db, page=page, size=size, keyword=keyword,
         city=city, job_type=job_type, experience=experience,
@@ -219,6 +228,8 @@ async def job_plaza(
         "page": result["page"],
         "size": result["size"],
     }
+    # 写入缓存, TTL 5 分钟
+    cache_service.set(cache_key, data, ttl=300)
     return success(data=data)
 
 
@@ -260,7 +271,13 @@ async def get_job(
     current_user: SysUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """职位详情 (含技能要求)"""
+    """职位详情 (含技能要求) - Redis 缓存 10 分钟"""
+    # 查缓存
+    cache_key = f"job:detail:{job_id}"
+    cached = cache_service.get(cache_key)
+    if cached is not None:
+        return success(data=cached)
+
     try:
         job = job_service.get_detail(job_id, db)
         data = {
@@ -291,6 +308,8 @@ async def get_job(
             ],
             "created_at": job.created_at.isoformat() if job.created_at else None,
         }
+        # 写入缓存, TTL 10 分钟
+        cache_service.set(cache_key, data, ttl=600)
         return success(data=data)
     except ValueError as e:
         return fail(BizError.RESOURCE_NOT_FOUND, str(e))
@@ -305,6 +324,9 @@ async def delete_job(
     """删除职位 (仅本人)"""
     try:
         job_service.delete(job_id, current_user.id, db)
+        # 清除职位广场缓存
+        cache_service.delete_pattern("jobs:plaza:*")
+        cache_service.delete(f"job:detail:{job_id}")
         return success(message="删除成功")
     except ValueError as e:
         return fail(BizError.RESOURCE_NOT_FOUND, str(e))
@@ -320,6 +342,9 @@ async def update_job_status(
     """更新职位状态"""
     try:
         job = job_service.update_status(job_id, status, current_user.id, db)
+        # 清除职位广场缓存
+        cache_service.delete_pattern("jobs:plaza:*")
+        cache_service.delete(f"job:detail:{job_id}")
         return success(data={"job_id": job.id, "status": job.status}, message="状态更新成功")
     except ValueError as e:
         return fail(BizError.RESOURCE_NOT_FOUND, str(e))

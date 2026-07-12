@@ -58,22 +58,34 @@
           <el-form-item>
             <el-button type="primary" :loading="saving" @click="handleSave">保存修改</el-button>
             <el-button @click="handleReset">重置</el-button>
+            <el-button type="warning" @click="pwdDialogRef?.open()">修改密码</el-button>
           </el-form-item>
         </el-form>
       </div>
     </el-card>
+
+    <!-- 修改密码弹窗 -->
+    <ChangePasswordDialog ref="pwdDialogRef" @success="onPasswordChanged" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
 import { useUserStore } from '@/stores/user'
 import { authApi } from '@/api/auth'
 
 const userStore = useUserStore()
 const loading = ref(false)
 const saving = ref(false)
+const pwdDialogRef = ref<InstanceType<typeof ChangePasswordDialog>>()
+
+const onPasswordChanged = () => {
+  localStorage.removeItem('access_token')
+  ElMessage.info('请使用新密码重新登录')
+  setTimeout(() => window.location.href = '/login', 1500)
+}
 
 const form = reactive<any>({
   user_id: '',

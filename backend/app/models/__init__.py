@@ -8,6 +8,9 @@ from app.models.application import JobApplication
 from app.models.log import AdminLog
 from app.models.message import Message
 from app.models.favorite import Favorite
+from app.models.interview import Interview
+from app.models.license import BusinessLicense
+from app.models.subscription import JobSubscription
 
 __all__ = [
     "SysUser",
@@ -19,4 +22,7 @@ __all__ = [
     "AdminLog",
     "Message",
     "Favorite",
+    "Interview",
+    "BusinessLicense",
+    "JobSubscription",
 ]

@@ -32,7 +32,7 @@
           placeholder="选择岗位查看匹配"
           style="width: 220px"
           filterable
-          @change="renderGraph"
+          @change="fetchGraph"
         >
           <el-option
             v-for="j in jobOptions"
@@ -382,6 +382,26 @@ const fetchGraph = async () => {
       matchedSkills.value = reqSkills.filter((s: string) => isSkillMatch(s, mySkillNames))
       missingSkills.value = reqSkills.filter((s: string) => !isSkillMatch(s, mySkillNames))
 
+      // 构建「岗位要求技能 → 实际技能节点」的映射, 解决别名匹配后连线找不到的问题
+      // 例如: 岗位要求 "Java", 简历技能 "java语言", 模糊匹配成功但 s.label === 'Java' 找不到节点
+      const reqToNodeMap: Record<string, any> = {}
+      reqSkills.forEach((reqSkill: string) => {
+        // 1. 精确匹配
+        let found = skillNodes.find((s: any) => s.label === reqSkill)
+        if (found) { reqToNodeMap[reqSkill] = found; return }
+        // 2. 归一化匹配
+        const reqNorm = normalize(reqSkill)
+        found = skillNodes.find((s: any) => normalize(s.label) === reqNorm)
+        if (found) { reqToNodeMap[reqSkill] = found; return }
+        // 3. 包含关系匹配
+        const reqLower = reqSkill.toLowerCase()
+        found = skillNodes.find((s: any) => {
+          const myLower = s.label.toLowerCase()
+          return reqLower.includes(myLower) || myLower.includes(reqLower)
+        })
+        if (found) { reqToNodeMap[reqSkill] = found }
+      })
+
         // 调用后端统一匹配度引擎 (六维度加权评分, 与投递管理/推荐列表同源)
         try {
           const scoreRes: any = await matchApi.getScore(resumeId.value, jobId.value)
@@ -414,9 +434,9 @@ const fetchGraph = async () => {
           x: 500, y: 0, fixed: true,
         })
 
-        // 岗位 -> 已匹配技能 (绿色发光线)
+        // 岗位 -> 已匹配技能 (绿色发光线, 使用 reqToNodeMap 解决别名匹配问题)
         matchedSkills.value.forEach((skillName: string) => {
-          const skillNode = skillNodes.find((s: any) => s.label === skillName)
+          const skillNode = reqToNodeMap[skillName]
           if (skillNode) {
             graphEdges.push({
               source: 'job',

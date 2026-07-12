@@ -268,9 +268,12 @@ const initChart = async () => {
           color = '#909399'
         }
       }
+      // 中心节点(职位)显示岗位名称, 而非内部 ID
+      const nodeName = isJob ? (job.value?.title || n.props?.name || n.name || String(n.id))
+                              : (n.props?.name || n.name || n.title || String(n.id))
       return {
         id: String(n.id),
-        name: n.props?.name || n.name || n.title || String(n.id),
+        name: nodeName,
         symbolSize,
         itemStyle: { color },
         category: isJob ? 0 : 1,

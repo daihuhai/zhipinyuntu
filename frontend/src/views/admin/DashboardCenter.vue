@@ -18,7 +18,12 @@
       <LogStream :items="logs" class="col-4" />
 
       <!-- 第二行 -->
-      <ResumeFunnel :data="trend?.resume_status" class="col-4" />
+      <ResumeFunnel
+        :data="trend?.resume_status"
+        :parse-trend="trend?.resume_parse_trend"
+        :ai-usage="trend?.ai_usage"
+        class="col-4"
+      />
       <CityDistChart :data="cityDist" class="col-4" />
       <SkillWordCloud :skills="trend?.hot_skills || []" class="col-4" />
 
