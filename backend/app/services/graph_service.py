@@ -137,11 +137,24 @@ class GraphService:
                     node_id = f"{node.element_id}"
                     if node_id not in nodes:
                         labels = list(node.labels) if hasattr(node, "labels") else [key.upper()]
+                        node_type = labels[0] if labels else key
+                        # 根据节点类型提取可读标签 (避免显示 job_56 等内部ID)
+                        props = dict(node)
+                        if node_type == "Job":
+                            label = props.get("title") or props.get("name") or f"职位#{props.get('id', '')}"
+                        elif node_type == "Person":
+                            label = props.get("name") or props.get("title") or f"求职者#{props.get('id', '')}"
+                        elif node_type == "Skill":
+                            label = props.get("name") or f"技能#{props.get('id', '')}"
+                        elif node_type == "Category":
+                            label = props.get("name") or f"分类#{props.get('id', '')}"
+                        else:
+                            label = props.get("name") or props.get("title") or str(props.get("id", ""))
                         nodes[node_id] = {
                             "id": node_id,
-                            "label": dict(node).get("name") or dict(node).get("title") or str(node["id"]),
-                            "type": labels[0] if labels else key,
-                            "properties": dict(node),
+                            "label": label,
+                            "type": node_type,
+                            "properties": props,
                         }
         return {"nodes": list(nodes.values()), "edges": edges, "degraded": False}
 

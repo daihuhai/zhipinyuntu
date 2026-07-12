@@ -138,6 +138,7 @@ import * as echarts from 'echarts'
 import { resumeApi } from '@/api/resume'
 import { graphApi } from '@/api/graph'
 import { jobApi } from '@/api/job'
+import { matchApi } from '@/api/match'
 
 const route = useRoute()
 const resumes = ref<any[]>([])
@@ -156,13 +157,23 @@ const matchedSkills = ref<string[]>([])
 const missingSkills = ref<string[]>([])
 const allSkills = ref<{ name: string; level: string }[]>([])
 
+// 六维度匹配分 (后端统一数据源, 0-1 区间)
+const dimensionScores = ref({
+  skill: 0,
+  experience: 0,
+  education: 0,
+  city: 0,
+  salary: 0,
+  project: 0,
+})
+
 // ECharts 实例
 const graphRef = ref<HTMLElement>()
 const radarRef = ref<HTMLElement>()
 let graphChart: echarts.ECharts | null = null
 let radarChart: echarts.ECharts | null = null
 
-// 技能统计
+// 技能统计 (匹配度统一由底部"岗位匹配度"展示, 此处不再重复)
 const skillStats = computed(() => {
   const total = allSkills.value.length
   const matched = matchedSkills.value.length
@@ -171,7 +182,6 @@ const skillStats = computed(() => {
     { label: '技能总数', value: total, color: '#a78bfa' },
     { label: '已匹配', value: matched, color: '#52c41a' },
     { label: '能力缺失', value: missing, color: '#ff4d4f' },
-    { label: '匹配率', value: total > 0 ? `${Math.round((matched / total) * 100)}%` : '0%', color: '#1677ff' },
   ]
 })
 
@@ -319,21 +329,84 @@ const fetchGraph = async () => {
       const job = jobOptions.value.find(j => j.id === jobId.value)
       if (job) {
         // 获取岗位技能要求 (从职位详情)
-        const detail: any = await jobApi.detail(jobId.value)
-        const reqSkills = (detail.data?.requirements || []).map((r: any) => r.skill_name)
-        const mySkillNames = skillNodes.map((s: any) => s.label)
+      const detail: any = await jobApi.detail(jobId.value)
+      const reqSkills = (detail.data?.requirements || []).map((r: any) => r.skill_name)
+      const mySkillNames = skillNodes.map((s: any) => s.label)
 
-        // 匹配/缺失
-        matchedSkills.value = reqSkills.filter((s: string) => mySkillNames.includes(s))
-        missingSkills.value = reqSkills.filter((s: string) => !mySkillNames.includes(s))
-        matchScore.value = reqSkills.length > 0
-          ? Math.round((matchedSkills.value.length / reqSkills.length) * 100)
-          : 85
+      // 技能别名归一化映射 (与后端 match_service.py 保持一致)
+      const skillAliasMap: Record<string, string[]> = {
+        'office': ['office办公软件', 'office套件', 'office', 'msoffice', 'ms office'],
+        'python': ['python', 'python3', 'py'],
+        'java': ['java', 'java语言', 'jdk'],
+        'mysql': ['mysql', 'sql', '数据库'],
+        'linux': ['linux', 'linux系统', 'unix'],
+        'vue': ['vue', 'vue.js', 'vuejs'],
+        'react': ['react', 'react.js', 'reactjs'],
+        'docker': ['docker', '容器', '容器化'],
+        'kubernetes': ['kubernetes', 'k8s'],
+      }
 
-        // 岗位节点
+      // 构建反向索引: 技能名 -> 标准名
+      const normalizeMap: Record<string, string> = {}
+      for (const [std, aliases] of Object.entries(skillAliasMap)) {
+        for (const alias of aliases) {
+          normalizeMap[alias.toLowerCase()] = std
+        }
+      }
+
+      // 归一化函数
+      const normalize = (name: string): string => {
+        const n = (name || '').toLowerCase().trim()
+        return normalizeMap[n] || n
+      }
+
+      // 模糊匹配函数
+      const isSkillMatch = (reqSkill: string, mySkills: string[]): boolean => {
+        // 1. 精确匹配
+        if (mySkills.includes(reqSkill)) return true
+        // 2. 归一化匹配
+        const reqNorm = normalize(reqSkill)
+        for (const mySkill of mySkills) {
+          if (normalize(mySkill) === reqNorm) return true
+        }
+        // 3. 包含关系匹配
+        const reqLower = reqSkill.toLowerCase()
+        for (const mySkill of mySkills) {
+          const myLower = mySkill.toLowerCase()
+          if (reqLower.includes(myLower) || myLower.includes(reqLower)) return true
+        }
+        return false
+      }
+
+      // 匹配/缺失 (仅用于图谱节点展示, 匹配度由后端六维度引擎计算)
+      matchedSkills.value = reqSkills.filter((s: string) => isSkillMatch(s, mySkillNames))
+      missingSkills.value = reqSkills.filter((s: string) => !isSkillMatch(s, mySkillNames))
+
+        // 调用后端统一匹配度引擎 (六维度加权评分, 与投递管理/推荐列表同源)
+        try {
+          const scoreRes: any = await matchApi.getScore(resumeId.value, jobId.value)
+          const sd = scoreRes.data
+          matchScore.value = Math.round(sd.total_score)
+          dimensionScores.value = {
+            skill: sd.skill_score,
+            experience: sd.experience_score,
+            education: sd.education_score,
+            city: sd.city_score,
+            salary: sd.salary_score,
+            project: sd.project_score,
+          }
+        } catch (err: any) {
+          // 后端匹配引擎不可用时, 降级到技能匹配率
+          matchScore.value = reqSkills.length > 0
+            ? Math.round((matchedSkills.value.length / reqSkills.length) * 100)
+            : 0
+          dimensionScores.value = { skill: 0, experience: 0, education: 0, city: 0, salary: 0, project: 0 }
+        }
+
+        // 岗位节点 (始终使用 job.title, 避免显示 "job_56" 等内部 ID)
         graphNodes.push({
           id: 'job',
-          name: job.title,
+          name: job.title || `职位#${job.id}`,
           category: 2,
           symbolSize: 60,
           itemStyle: { color: '#ff6b35', shadowBlur: 30, shadowColor: 'rgba(255,107,53,0.8)' },
@@ -380,8 +453,9 @@ const fetchGraph = async () => {
         })
       }
     } else {
-      // 未选岗位时给一个默认匹配度
+      // 未选岗位时清空匹配度
       matchScore.value = null
+      dimensionScores.value = { skill: 0, experience: 0, education: 0, city: 0, salary: 0, project: 0 }
     }
 
     nodes.value = graphNodes
@@ -456,28 +530,18 @@ const renderRadar = () => {
   if (radarChart) radarChart.dispose()
   radarChart = echarts.init(radarRef.value, 'dark')
 
-  // 合并技能维度: 我的技能 + 岗位要求技能 (去重)
-  const levelMap: Record<string, number> = { '了解': 40, '掌握': 60, '熟练': 80, '精通': 100 }
-  const reqLevelMap: Record<string, number> = { '必须': 100, '优先': 75 }
+  // 六维度能力雷达 (数据来自后端 match_service.coarse_rank)
+  const dims = [
+    { key: 'skill', label: '技能' },
+    { key: 'experience', label: '经验' },
+    { key: 'education', label: '学历' },
+    { key: 'city', label: '城市' },
+    { key: 'salary', label: '薪资' },
+    { key: 'project', label: '项目' },
+  ] as const
 
-  // 我的技能维度
-  const mySkillNames = allSkills.value.map(s => s.name)
-  // 岗位要求技能维度
-  const reqSkillNames = jobId.value
-    ? matchedSkills.value.concat(missingSkills.value)
-    : []
-
-  // 合并维度 (保持顺序, 最多 6 个, 减少拥挤)
-  const allDims: string[] = []
-  mySkillNames.forEach(n => { if (!allDims.includes(n)) allDims.push(n) })
-  reqSkillNames.forEach(n => { if (!allDims.includes(n)) allDims.push(n) })
-  const dims = allDims.slice(0, 6)
-
-  // 我的技能值
-  const myValues = dims.map(name => {
-    const sk = allSkills.value.find(s => s.name === name)
-    return sk ? (levelMap[sk.level] || 60) : 0
-  })
+  // 我的能力: 后端六维度评分 (0-1 → 0-100)
+  const myValues = dims.map(d => Math.round((dimensionScores.value[d.key] || 0) * 100))
 
   const series: any[] = [{
     value: myValues,
@@ -487,45 +551,32 @@ const renderRadar = () => {
     itemStyle: { color: '#a78bfa' },
   }]
 
-  // 岗位要求值 (选中岗位时叠加)
-  if (jobId.value && reqSkillNames.length) {
-    const reqValues = dims.map(name => {
-      // 从岗位要求中查找
-      if (matchedSkills.value.includes(name) || missingSkills.value.includes(name)) {
-        // 缺失技能求职者为0, 但岗位要求有值
-        return 90
-      }
-      return 0
-    })
+  // 岗位要求: 选中岗位时叠加 90 分基准线
+  const hasJob = jobId.value && matchScore.value !== null
+  if (hasJob) {
     series.push({
-      value: reqValues,
+      value: dims.map(() => 90),
       name: '岗位要求',
-      areaStyle: { color: 'rgba(255,107,53,0.15)' },
+      areaStyle: { color: 'rgba(255,107,53,0.12)' },
       lineStyle: { color: '#ff6b35', width: 2, type: 'dashed' },
       itemStyle: { color: '#ff6b35' },
     })
   }
 
-  // 补齐维度到至少 3 个
-  while (dims.length < 3) {
-    dims.push('-')
-    series.forEach(s => s.value.push(0))
-  }
-
   radarChart.setOption({
     backgroundColor: 'transparent',
-    legend: jobId.value && reqSkillNames.length ? {
+    legend: hasJob ? {
       data: ['我的能力', '岗位要求'],
       textStyle: { color: '#e0e7ff', fontSize: 12, fontWeight: 500 },
-      top: 8, right: 8, itemGap: 20,
+      top: 8, left: 'center', itemGap: 30,
       icon: 'roundRect',
       itemWidth: 14,
       itemHeight: 10,
     } : { show: false },
     radar: {
-      indicator: dims.map(name => ({ name, max: 100 })),
+      indicator: dims.map(d => ({ name: d.label, max: 100, nameGap: 12 })),
       shape: 'polygon',
-      radius: '65%',
+      radius: '55%',
       center: ['50%', '55%'],
       axisName: { color: '#e0e7ff', fontSize: 12, fontWeight: 500 },
       splitArea: { areaStyle: { color: ['rgba(167,139,250,0.03)', 'rgba(167,139,250,0.08)'] } },

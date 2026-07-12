@@ -21,6 +21,7 @@ from app.models.job import Job
 from app.models.application import JobApplication
 from app.models.message import Message
 from app.schemas.common import success, fail, BizError
+from app.services.match_service import match_service
 from app.utils.mask import mask_phone, mask_email
 
 router = APIRouter(prefix="/applications", tags=["投递记录"])
@@ -264,10 +265,12 @@ async def list_applications_by_job(
     for app, resume in rows:
         # 简历技能列表
         resume_skills = [s.skill_name for s in resume.skills] if resume.skills else []
-        # 匹配分析
+        # 匹配分析: matched/missing 仅用于前端展示技能命中明细
         matched = [s for s in req_skills if s in resume_skills]
         missing = [s for s in req_skills if s not in resume_skills]
-        match_score = round(len(matched) / len(req_skills) * 100) if req_skills else 0
+        # 匹配度统一使用后端六维度引擎 (技能35% + 经验20% + 学历10% + 城市10% + 薪资10% + 项目15%)
+        scores = match_service.coarse_rank(resume, job)
+        match_score = round(scores["total"])
         # 工作经历和项目经历
         work_exp, projects = _parse_resume_extras(resume.raw_parse_json)
 
@@ -411,7 +414,12 @@ async def list_employer_applications(
         resume_skills = [s.skill_name for s in resume.skills] if resume.skills else []
         matched = [s for s in req_skills if s in resume_skills]
         missing = [s for s in req_skills if s not in resume_skills]
-        match_score = round(len(matched) / len(req_skills) * 100) if req_skills else 0
+        # 匹配度统一使用后端六维度引擎 (同一数据源, 与能力图谱/推荐列表一致)
+        if job:
+            scores = match_service.coarse_rank(resume, job)
+            match_score = round(scores["total"])
+        else:
+            match_score = 0
         # 工作经历和项目经历
         work_exp, projects = _parse_resume_extras(resume.raw_parse_json)
 

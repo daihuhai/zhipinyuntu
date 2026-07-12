@@ -8,13 +8,14 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.deps import get_current_user, require_role
 from app.db.base import get_db
 from app.models.match import MatchRecord
 from app.models.user import SysUser
 from app.models.job import Job
+from app.models.resume import Resume
 from app.schemas.common import success, fail, BizError
 from app.services.match_service import match_service
 
@@ -119,6 +120,47 @@ def recommend_resumes(
         for item in results
     ]
     return success(data={"items": data, "total": len(data)})
+
+
+@router.get("/score", summary="获取简历与岗位的匹配分")
+def get_match_score(
+    resume_id: int = Query(..., description="简历ID"),
+    job_id: int = Query(..., description="职位ID"),
+    current_user: SysUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """获取简历与岗位的六维度匹配分 (统一匹配度数据源)
+
+    匹配度主体是简历(resume), 不是用户(user)。
+    同一用户的多份简历对同一岗位的匹配度不同。
+    仅调用粗排(纯规则计算), 不触发 LLM 精排, 响应 < 100ms。
+    """
+    # 预加载 skills 关系, 避免懒加载失败导致技能维度评分为 0
+    resume = db.execute(
+        select(Resume)
+        .options(selectinload(Resume.skills))
+        .where(Resume.id == resume_id)
+    ).scalar_one_or_none()
+    job = db.execute(
+        select(Job)
+        .options(selectinload(Job.requirements))
+        .where(Job.id == job_id)
+    ).scalar_one_or_none()
+    if not resume or not job:
+        return fail(BizError.RESOURCE_NOT_FOUND, "简历或职位不存在")
+
+    # 调用匹配引擎粗排 (六维度评分, 纯计算无 LLM 调用)
+    scores = match_service.coarse_rank(resume, job)
+
+    return success(data={
+        "total_score": scores["total"],
+        "skill_score": scores["skill"],
+        "experience_score": scores["experience"],
+        "education_score": scores["education"],
+        "city_score": scores["city"],
+        "salary_score": scores["salary"],
+        "project_score": scores["project"],
+    })
 
 
 @router.get("/history", summary="匹配历史记录")
