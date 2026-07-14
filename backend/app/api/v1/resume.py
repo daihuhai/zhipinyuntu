@@ -1,6 +1,6 @@
 """
 简历路由
-- POST   /resumes/upload   上传简历 (DOC/PDF) + AI 解析
+- POST   /resumes/upload   上传简历 (DOC/PDF) + 灵犀解析
 - GET    /resumes           我的简历列表
 - GET    /resumes/{id}      简历详情 (含技能 + 工作经历 + 项目经历)
 - PUT    /resumes/{id}      在线编辑简历
@@ -11,7 +11,7 @@
 import json
 from fastapi import APIRouter, Depends, UploadFile, File, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user, require_role
@@ -23,6 +23,7 @@ from app.models.job import Job
 from app.models.application import JobApplication
 from app.schemas.common import success, fail, BizError
 from app.services.resume_service import resume_service
+from app.services.vip_service import vip_service, QuotaExceededException
 from app.ai.ark_client import ark_client
 from app.ai.prompts import build_gap_analysis_messages
 from app.utils.mask import mask_phone, mask_email
@@ -49,7 +50,7 @@ class ResumeEditRequest(BaseModel):
     skills: list[dict] | None = None  # [{"skill_name": "Java", "skill_level": "熟练"}]
 
 
-@router.post("/upload", summary="上传简历并 AI 解析", response_model=None)
+@router.post("/upload", summary="上传简历并灵犀解析", response_model=None)
 @limiter.limit("5/minute")
 async def upload_resume(
     request: Request,
@@ -57,13 +58,25 @@ async def upload_resume(
     current_user: SysUser = Depends(require_role("ROLE_SEEKER")),
     db: Session = Depends(get_db),
 ):
-    """上传 DOC/PDF 简历, 同步调用豆包模型解析结构化"""
+    """上传 DOC/PDF 简历, 同步调用灵犀大模型解析结构化 (非 VIP 用户消耗配额)"""
+    # VIP 配额检查 (保存消耗前状态, 失败时精确退还)
+    _paid_before = current_user.paid_quota
+    _free_used_before = current_user.free_quota_used
+    try:
+        vip_service.check_and_consume_quota(current_user, db, action="resume_parse")
+    except QuotaExceededException as e:
+        return fail(BizError.ROLE_FORBIDDEN, e.message, data=e.quota_info)
+
     try:
         result = await resume_service.upload_and_parse(file, current_user.id, db)
         return success(data=result, message="简历上传并解析成功")
     except ValueError as e:
         return fail(BizError.VALIDATION_ERROR, str(e))
     except Exception as e:
+        # 解析失败, 精确退还消耗的配额
+        current_user.free_quota_used = _free_used_before
+        current_user.paid_quota = _paid_before
+        db.commit()
         return fail(BizError.PARSE_FAILED, f"解析失败: {e}")
 
 
@@ -214,7 +227,7 @@ async def update_resume(
         # 更新技能 (如果提供了)
         if skills_data is not None:
             # 删除旧技能
-            db.query(ResumeSkill).filter(ResumeSkill.resume_id == resume_id).delete()
+            db.execute(delete(ResumeSkill).where(ResumeSkill.resume_id == resume_id))
             # 插入新技能
             for skill_item in skills_data:
                 skill = ResumeSkill(
@@ -296,20 +309,28 @@ def embed_resume(
         return fail(BizError.SYSTEM_ERROR, f"向量生成失败: {e}")
 
 
-@router.post("/{resume_id}/gap-analysis", summary="AI 分析简历缺失项", response_model=None)
+@router.post("/{resume_id}/gap-analysis", summary="灵犀分析简历缺失项", response_model=None)
 async def analyze_resume_gaps(
     resume_id: int,
     current_user: SysUser = Depends(require_role("ROLE_SEEKER")),
     db: Session = Depends(get_db),
 ):
-    """调用大模型分析简历中缺失或可改进的部分, 返回具体建议"""
+    """调用灵犀大模型分析简历中缺失或可改进的部分, 返回具体建议 (非 VIP 用户消耗配额)"""
     import asyncio
     try:
         resume = resume_service.get_detail(resume_id, db)
         if resume.user_id != current_user.id:
             return fail(BizError.ROLE_FORBIDDEN, "无权分析他人简历")
 
-        # 构造简历摘要 JSON 发送给大模型
+        # VIP 配额检查 (保存消耗前状态, 失败时精确退还)
+        _paid_before = current_user.paid_quota
+        _free_used_before = current_user.free_quota_used
+        try:
+            vip_service.check_and_consume_quota(current_user, db, action="gap_analysis")
+        except QuotaExceededException as e:
+            return fail(BizError.ROLE_FORBIDDEN, e.message, data=e.quota_info)
+
+        # 构造简历摘要 JSON 发送给灵犀大模型
         resume_summary = {
             "name": resume.name or "",
             "gender": resume.gender or "",
@@ -336,11 +357,11 @@ async def analyze_resume_gaps(
         messages = build_gap_analysis_messages(json.dumps(resume_summary, ensure_ascii=False))
 
         # 在线程池中调用 LLM, 避免阻塞事件循环
-        result = await asyncio.to_thread(
+        result, gap_usage = await asyncio.to_thread(
             ark_client.chat_json, messages, temperature=0.2, max_tokens=2048
         )
 
-        # 记录 AI 分析操作日志
+        # 记录灵犀分析操作日志
         try:
             from app.services.admin_service import admin_service
             admin_service.write_system_log(
@@ -348,7 +369,9 @@ async def analyze_resume_gaps(
                 action="AI_GAP_ANALYSIS",
                 target_type="resume",
                 target_id=resume_id,
-                detail=f"大模型分析简历缺失项: {resume.name or '未知'} (ID:{resume_id})",
+                detail=f"灵犀大模型分析简历缺失项: {resume.name or '未知'} (ID:{resume_id})",
+                tokens_in=gap_usage.get("prompt_tokens", 0),
+                tokens_out=gap_usage.get("completion_tokens", 0),
             )
         except Exception:
             pass
@@ -357,4 +380,8 @@ async def analyze_resume_gaps(
     except ValueError as e:
         return fail(BizError.RESOURCE_NOT_FOUND, str(e))
     except Exception as e:
+        # 分析失败, 退还配额
+        current_user.free_quota_used = _free_used_before
+        current_user.paid_quota = _paid_before
+        db.commit()
         return fail(BizError.SYSTEM_ERROR, f"分析失败: {e}")

@@ -1,7 +1,7 @@
 """
 职位路由
 - POST   /jobs              创建职位 (支持 JD 解析)
-- POST   /jobs/upload-jd    上传 JD 文件 (PDF/DOC/DOCX) + AI 解析
+- POST   /jobs/upload-jd    上传 JD 文件 (PDF/DOC/DOCX) + 灵犀解析
 - GET    /jobs              我的职位列表 (企业)
 - GET    /jobs/plaza        职位广场 (公开, 分页)
 - GET    /jobs/favorites    我的收藏列表 (求职者)
@@ -32,12 +32,12 @@ from app.services.cache_service import cache_service
 router = APIRouter(prefix="/jobs", tags=["职位"])
 
 
-@router.post("/upload-jd", summary="上传 JD 文件并 AI 解析", response_model=None)
+@router.post("/upload-jd", summary="上传 JD 文件并灵犀解析", response_model=None)
 async def upload_jd(
     file: UploadFile = File(...),
     current_user: SysUser = Depends(require_role("ROLE_EMPLOYER")),
 ):
-    """上传 JD 文件 (PDF/DOC/DOCX), 提取文本并用豆包 AI 结构化解析, 返回字段供前端预填表单"""
+    """上传 JD 文件 (PDF/DOC/DOCX), 提取文本并用灵犀大模型结构化解析, 返回字段供前端预填表单"""
     try:
         # 1. 保存文件
         file_info = await file_service.save(file, sub_dir="jobs")
@@ -48,7 +48,7 @@ async def upload_jd(
         if not text.strip():
             return fail(BizError.PARSE_FAILED, "无法从文件中提取文本, 请确认文件非扫描件/图片")
 
-        # 3. AI 结构化解析 (放到线程池)
+        # 3. 灵犀结构化解析 (放到线程池)
         parsed = await asyncio.to_thread(doc_parser.parse_job, text)
 
         return success(data={
@@ -83,14 +83,14 @@ async def parse_jd_text(
 ):
     """解析 JD 纯文本, 返回结构化字段 + 技能要求 (复用 doc_parser.parse_job)
 
-    注意: AI 调用是同步阻塞操作, 必须放到线程池执行, 否则会阻塞 FastAPI 事件循环
+    注意: 灵犀调用是同步阻塞操作, 必须放到线程池执行, 否则会阻塞 FastAPI 事件循环
     导致其他请求 (包括健康检查、静态资源) 全部卡住, 表现为前端请求 pending。
     """
     text = (payload.get("text") or "").strip()
     if not text:
         return fail(BizError.VALIDATION_ERROR, "JD 文本不能为空")
     try:
-        # AI 调用放到线程池, 避免阻塞事件循环 (与 upload_jd 保持一致)
+        # 灵犀调用放到线程池, 避免阻塞事件循环 (与 upload_jd 保持一致)
         parsed = await asyncio.to_thread(doc_parser.parse_job, text)
         return success(data={
             "raw_text": text[:2000],
@@ -121,7 +121,7 @@ def create_job(
     current_user: SysUser = Depends(require_role("ROLE_EMPLOYER")),
     db: Session = Depends(get_db),
 ):
-    """创建职位, 若提供 parse_text 则用豆包模型解析 JD"""
+    """创建职位, 若提供 parse_text 则用灵犀大模型解析 JD"""
     try:
         data = req.model_dump(exclude_none=False)
         job = job_service.create(data, current_user.id, db)

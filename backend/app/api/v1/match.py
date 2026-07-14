@@ -19,6 +19,7 @@ from app.models.job import Job
 from app.models.resume import Resume
 from app.schemas.common import success, fail, BizError
 from app.services.match_service import match_service
+from app.services.vip_service import vip_service, QuotaExceededException
 
 router = APIRouter(prefix="/match", tags=["智能匹配"])
 
@@ -72,8 +73,14 @@ def recommend_jobs(
     current_user: SysUser = Depends(require_role("ROLE_SEEKER", "ROLE_ADMIN")),
     db: Session = Depends(get_db),
 ):
-    """为求职者简历推荐匹配职位 (召回→粗排→精排)"""
+    """为求职者简历推荐匹配职位 (召回→粗排→精排), 非 VIP 用户消耗配额"""
     from sqlalchemy import func
+
+    # VIP 配额检查
+    try:
+        vip_service.check_and_consume_quota(current_user, db, action="job_recommend")
+    except QuotaExceededException as e:
+        return fail(BizError.ROLE_FORBIDDEN, e.message, data=e.quota_info)
 
     resume = db.get(Resume, resume_id)
     if not resume:
@@ -108,15 +115,18 @@ def recommend_jobs(
         for item in results
     ]
 
-    # 记录 AI 匹配操作日志
+    # 记录灵犀匹配操作日志 (含真实 token 消耗)
     try:
         from app.services.admin_service import admin_service
+        usage = match_service.get_rerank_usage()
         admin_service.write_system_log(
             db,
             action="AI_MATCH_RECOMMEND",
             target_type="resume",
             target_id=resume_id,
-            detail=f"大模型推荐职位: 简历ID={resume_id}, 返回{len(data)}条结果",
+            detail=f"灵犀大模型推荐职位: 简历ID={resume_id}, 返回{len(data)}条结果",
+            tokens_in=usage.get("prompt_tokens", 0),
+            tokens_out=usage.get("completion_tokens", 0),
         )
     except Exception:
         pass
@@ -133,13 +143,19 @@ def recommend_resumes(
     current_user: SysUser = Depends(require_role("ROLE_EMPLOYER", "ROLE_ADMIN")),
     db: Session = Depends(get_db),
 ):
-    """为企业职位推荐匹配候选人 (召回→粗排→精排)"""
+    """为企业职位推荐匹配候选人 (召回→粗排→精排), 非 VIP 用户消耗配额"""
     # IDOR 防护: 企业仅可查看本企业职位的候选人 (管理员除外)
     job = db.get(Job, job_id)
     if not job:
         return fail(BizError.RESOURCE_NOT_FOUND, "职位不存在")
     if current_user.role == "ROLE_EMPLOYER" and job.user_id != current_user.id:
         return fail(BizError.ROLE_FORBIDDEN, "无权查看非本企业职位的候选人")
+
+    # VIP 配额检查
+    try:
+        vip_service.check_and_consume_quota(current_user, db, action="resume_recommend")
+    except QuotaExceededException as e:
+        return fail(BizError.ROLE_FORBIDDEN, e.message, data=e.quota_info)
 
     results = match_service.recommend_resumes_for_job(job_id, db, top_k=top_k)
     data = [
@@ -159,15 +175,18 @@ def recommend_resumes(
         for item in results
     ]
 
-    # 记录 AI 匹配操作日志
+    # 记录灵犀匹配操作日志 (含真实 token 消耗)
     try:
         from app.services.admin_service import admin_service
+        usage = match_service.get_rerank_usage()
         admin_service.write_system_log(
             db,
             action="AI_MATCH_RECOMMEND",
             target_type="job",
             target_id=job_id,
-            detail=f"大模型推荐候选人: 职位ID={job_id}, 返回{len(data)}条结果",
+            detail=f"灵犀大模型推荐候选人: 职位ID={job_id}, 返回{len(data)}条结果",
+            tokens_in=usage.get("prompt_tokens", 0),
+            tokens_out=usage.get("completion_tokens", 0),
         )
     except Exception:
         pass
@@ -232,7 +251,10 @@ async def match_history(
         stmt = stmt.where(MatchRecord.direction == direction)
     stmt = stmt.order_by(MatchRecord.created_at.desc())
 
-    total = len(list(db.execute(stmt).scalars()))
+    # COUNT 子查询
+    from sqlalchemy import func
+    count_stmt = select(func.count()).select_from(stmt.subquery())
+    total = db.execute(count_stmt).scalar() or 0
     offset = (page - 1) * size
     items = list(db.execute(stmt.offset(offset).limit(size)).scalars())
     data = [

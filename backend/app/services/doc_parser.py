@@ -14,7 +14,7 @@ from app.ai.prompts import build_job_messages, build_resume_messages
 
 
 class DocParser:
-    """文档解析器 (文本提取 + AI 结构化)"""
+    """文档解析器 (文本提取 + 灵犀结构化)"""
 
     def extract_text(self, file_path: str) -> str:
         """从文件提取纯文本"""
@@ -59,26 +59,26 @@ class DocParser:
         logger.info(f"PDF 文本提取完成: {len(text)} 字符, {len(texts)} 页")
         return text
 
-    def parse_resume(self, text: str) -> dict[str, Any]:
-        """用豆包模型将简历文本结构化"""
+    def parse_resume(self, text: str) -> tuple[dict[str, Any], dict[str, int]]:
+        """用灵犀大模型将简历文本结构化, 返回 (结构化数据, token_usage)"""
         if not text.strip():
             raise ValueError("简历文本为空")
         # 截断超长文本 (避免 token 超限)
         truncated = text[:8000]
         messages = build_resume_messages(truncated)
-        result = ark_client.chat_json(messages, temperature=0.0, max_tokens=2048)
-        logger.info(f"简历结构化完成, 字段: {list(result.keys())}")
-        return result
+        result, usage = ark_client.chat_json(messages, temperature=0.0, max_tokens=2048)
+        logger.info(f"简历结构化完成, 字段: {list(result.keys())}, tokens={usage}")
+        return result, usage
 
-    def parse_job(self, text: str) -> dict[str, Any]:
-        """用豆包模型将职位描述结构化"""
+    def parse_job(self, text: str) -> tuple[dict[str, Any], dict[str, int]]:
+        """用灵犀大模型将职位描述结构化, 返回 (结构化数据, token_usage)"""
         if not text.strip():
             raise ValueError("职位文本为空")
         truncated = text[:4000]
         messages = build_job_messages(truncated)
         # max_tokens=1024: 限制输出长度加速推理 (prompt已要求description不超过200字、requirements最多8项)
-        result = ark_client.chat_json(messages, temperature=0.0, max_tokens=1024)
-        # 字段映射容错: 兼容 AI 返回的别名
+        result, usage = ark_client.chat_json(messages, temperature=0.0, max_tokens=1024)
+        # 字段映射容错: 兼容灵犀返回的别名
         field_aliases = {
             "title": ["title", "job_title", "position", "职位名称", "职位"],
             "company": ["company", "company_name", "公司名称", "公司"],
@@ -113,8 +113,8 @@ class DocParser:
                 except (ValueError, TypeError):
                     normalized[num_field] = None
         filled = [k for k, v in normalized.items() if v is not None]
-        logger.info(f"职位结构化完成, 有效字段 {len(filled)}/{len(normalized)}: {filled}")
-        return normalized
+        logger.info(f"职位结构化完成, 有效字段 {len(filled)}/{len(normalized)}: {filled}, tokens={usage}")
+        return normalized, usage
 
 
 doc_parser = DocParser()

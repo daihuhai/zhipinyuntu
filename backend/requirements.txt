@@ -24,8 +24,8 @@ httpx>=0.27.0
 python-docx>=1.1.0
 pdfplumber>=0.10.3
 
-# ===== 知识图谱 Neo4j =====
-neo4j>=5.18.0
+# ===== 知识图谱 NebulaGraph =====
+nebula3-python>=3.8.0
 
 # ===== 异步任务 =====
 celery>=5.3.6

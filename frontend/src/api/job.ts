@@ -31,7 +31,7 @@ export interface JobListParams {
 }
 
 export const jobApi = {
-  /** 上传 JD 文件 (PDF/DOC/DOCX) 并 AI 解析, 返回结构化字段供预填表单
+  /** 上传 JD 文件 (PDF/DOC/DOCX) 并灵犀解析, 返回结构化字段供预填表单
    *  注意: doubao-seed 推理模型单次调用约 60-200s (视文本长度), 超时设为 300s 确保覆盖 */
   uploadJD: (file: File) => {
     const fd = new FormData()
@@ -41,7 +41,7 @@ export const jobApi = {
       timeout: 300000,
     })
   },
-  /** 创建职位 (可带 parse_text 触发 AI 解析, AI 推理模型耗时较长单独设置 300s 超时) */
+  /** 创建职位 (可带 parse_text 触发灵犀解析, 灵犀推理模型耗时较长单独设置 300s 超时) */
   create: (data: JobCreateParams) =>
     request.post('/jobs', data, { timeout: 300000 }),
   /** 解析 JD 纯文本, 返回结构化字段供预填表单 (doubao-seed 推理模型, 单独设置 300s 超时) */

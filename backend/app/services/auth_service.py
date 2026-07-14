@@ -66,6 +66,9 @@ def register(req: RegisterRequest, db: Session) -> dict:
         # 个人字段
         real_name=req.real_name,
         gender=req.gender,
+        id_card=req.id_card,
+        education=req.education,
+        work_years=req.work_years,
         status=1,
     )
     db.add(user)

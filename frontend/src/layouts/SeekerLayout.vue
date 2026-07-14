@@ -3,11 +3,13 @@ import { onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { messageApi } from '@/api/message'
+import { vipApi } from '@/api/vip'
 
 const router = useRouter()
 const userStore = useUserStore()
 const collapsed = ref(false)
 const unreadCount = ref(0)
+const isVip = ref(false)
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
 const menuItems = [
@@ -18,6 +20,7 @@ const menuItems = [
   { index: '/seeker/recommend', icon: 'Position', title: '结果推荐' },
   { index: '/seeker/graph', icon: 'Share', title: '能力图谱' },
   { index: '/seeker/applications', icon: 'Tickets', title: '投递记录' },
+  { index: '/feedback', icon: 'ChatLineSquare', title: '意见反馈' },
   { index: '/seeker/messages', icon: 'ChatDotRound', title: '消息', badge: true },
   { index: '/seeker/profile', icon: 'Setting', title: '个人设置' },
 ]
@@ -27,6 +30,15 @@ const fetchUnread = async () => {
     const res: any = await messageApi.unreadCount()
     unreadCount.value = res.data?.unread_count || 0
   } catch {}
+}
+
+const fetchVipStatus = async () => {
+  try {
+    const res: any = await vipApi.getQuota()
+    isVip.value = !!res.data?.is_vip
+  } catch {
+    // 忽略
+  }
 }
 
 const handleSelect = (index: string) => {
@@ -40,6 +52,7 @@ const handleLogout = () => {
 
 onMounted(() => {
   fetchUnread()
+  fetchVipStatus()
   pollTimer = setInterval(fetchUnread, 15000)
 })
 onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
@@ -80,18 +93,25 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
           </el-icon>
           <span class="page-title">{{ $route.meta.title }}</span>
         </div>
-        <el-dropdown>
-          <span class="user-info">
-            <el-avatar :size="32">{{ userStore.userInfo?.nickname?.[0] || 'U' }}</el-avatar>
-            <span class="username">{{ userStore.userInfo?.nickname }}</span>
-            <el-icon><ArrowDown /></el-icon>
+        <div class="header-right">
+          <span v-if="isVip" class="vip-tag" @click="router.push('/seeker/vip')">
+            <el-icon><GoldMedal /></el-icon>
+            <span>VIP</span>
           </span>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item @click="handleLogout">退出登录</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
+          <span v-else class="normal-tag" @click="router.push('/seeker/vip')">普通用户</span>
+          <el-dropdown>
+            <span class="user-info">
+              <el-avatar :size="32">{{ userStore.userInfo?.nickname?.[0] || 'U' }}</el-avatar>
+              <span class="username">{{ userStore.userInfo?.nickname }}</span>
+              <el-icon><ArrowDown /></el-icon>
+            </span>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item @click="handleLogout">退出登录</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </div>
       </el-header>
       <el-main class="main">
         <router-view />
@@ -118,6 +138,22 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
 .page-title { font-size: 16px; font-weight: 600; }
 .user-info { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .username { font-size: 14px; }
+.header-right { display: flex; align-items: center; gap: 14px; }
+.vip-tag {
+  display: flex; align-items: center; gap: 4px;
+  padding: 3px 10px; border-radius: 12px; cursor: pointer;
+  background: linear-gradient(135deg, #faad14 0%, #ffc53d 100%);
+  color: #fff; font-size: 12px; font-weight: 700;
+  box-shadow: 0 2px 6px rgba(250, 173, 20, 0.4);
+  transition: transform 0.2s;
+}
+.vip-tag:hover { transform: scale(1.05); }
+.normal-tag {
+  padding: 3px 10px; border-radius: 12px; cursor: pointer;
+  background: #f0f0f0; color: #8c8c8c; font-size: 12px;
+  transition: all 0.2s;
+}
+.normal-tag:hover { background: #e6f4ff; color: #1677ff; }
 .main { background: var(--bg-page); padding: 20px; overflow-y: auto; }
 .menu-badge :deep(.el-badge__content) { background-color: #f56c6c; border: none; font-size: 11px; height: 18px; line-height: 18px; }
 :deep(.el-menu-item) { caret-color: transparent; user-select: none; }

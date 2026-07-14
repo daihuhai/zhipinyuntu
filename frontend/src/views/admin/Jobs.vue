@@ -11,6 +11,7 @@
         <el-option label="草稿" :value="2" />
       </el-select>
       <el-button type="primary" :icon="Search" @click="fetchList">查询</el-button>
+      <el-button @click="handleReset">重置</el-button>
       <el-button :icon="Download" :loading="exporting" @click="handleExport">导出CSV</el-button>
     </el-card>
 
@@ -155,6 +156,13 @@ const fetchList = async () => {
   }
 }
 
+const handleReset = () => {
+  keyword.value = ''
+  statusFilter.value = ''
+  page.value = 1
+  fetchList()
+}
+
 const showDetail = async (row: any) => {
   drawerVisible.value = true
   detailLoading.value = true
@@ -176,10 +184,18 @@ const formatDate = (iso?: string) => iso ? new Date(iso).toLocaleString('zh-CN',
 const handleBatchStatus = async (status: number) => {
   const ids = selectedRows.value.map(r => r.id)
   const action = status === 1 ? '上架' : '下架'
-  await ElMessageBox.confirm(`确认批量${action}选中的 ${ids.length} 条职位?`, '提示', { type: 'warning' })
-  const res: any = await adminApi.batchUpdateJobStatus(ids, status)
-  ElMessage.success(`已${action} ${res.data?.updated ?? ids.length} 条`)
-  fetchList()
+  try {
+    await ElMessageBox.confirm(`确认批量${action}选中的 ${ids.length} 条职位?`, '提示', { type: 'warning' })
+  } catch {
+    return
+  }
+  try {
+    const res: any = await adminApi.batchUpdateJobStatus(ids, status)
+    ElMessage.success(`已${action} ${res.data?.updated ?? ids.length} 条`)
+    fetchList()
+  } catch (e: any) {
+    ElMessage.error(e?.message || '操作失败')
+  }
 }
 
 const handleStatus = async (cmd: string, id: number) => {
@@ -189,10 +205,18 @@ const handleStatus = async (cmd: string, id: number) => {
 }
 
 const handleDelete = async (row: any) => {
-  await ElMessageBox.confirm(`确认删除职位 ${row.title}?`, '提示', { type: 'warning' })
-  await adminApi.deleteJob(row.id)
-  ElMessage.success('已删除')
-  fetchList()
+  try {
+    await ElMessageBox.confirm(`确认删除职位 ${row.title}?`, '提示', { type: 'warning' })
+  } catch {
+    return
+  }
+  try {
+    await adminApi.deleteJob(row.id)
+    ElMessage.success('已删除')
+    fetchList()
+  } catch (e: any) {
+    ElMessage.error(e?.message || '删除失败')
+  }
 }
 
 // 导出职位数据为 CSV

@@ -67,6 +67,16 @@ def get_current_user(
     return user
 
 
+def require_admin(current_user: SysUser = Depends(get_current_user)) -> SysUser:
+    """要求管理员角色"""
+    if current_user.role != "ROLE_ADMIN":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": BizError.ROLE_FORBIDDEN, "message": "仅管理员可访问此资源"},
+        )
+    return current_user
+
+
 def require_role(*allowed_roles: str):
     """角色权限校验依赖工厂
 

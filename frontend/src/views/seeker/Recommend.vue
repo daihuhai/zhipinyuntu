@@ -1,5 +1,5 @@
 <!--
-  职位推荐 (求职者) - 基于 AI 匹配引擎 + 简历投递
+  职位推荐 (求职者) - 基于灵犀匹配引擎 + 简历投递
 -->
 <template>
   <div class="recommend-page">
@@ -13,26 +13,26 @@
     </el-card>
 
     <div class="rec-list">
-      <!-- AI 匹配中动画 -->
+      <!-- 灵犀匹配中动画 -->
       <div v-if="loading" class="matching-animation">
         <div class="match-pulse">
           <div class="pulse-ring"></div>
           <div class="pulse-ring delay"></div>
           <el-icon :size="36" color="#1677ff"><MagicStick /></el-icon>
         </div>
-        <div class="match-title">AI 智能匹配中</div>
+        <div class="match-title">灵犀智能匹配中</div>
         <div class="match-sub">{{ emptyText }}</div>
         <div class="match-steps">
           <div class="step-dot"><span class="dot active"></span><span>召回候选职位</span></div>
           <div class="step-line active"></div>
           <div class="step-dot"><span class="dot active"></span><span>多维特征粗排</span></div>
           <div class="step-line active"></div>
-          <div class="step-dot"><span class="dot rotating"></span><span>大模型精排</span></div>
+          <div class="step-dot"><span class="dot rotating"></span><span>灵犀大模型精排</span></div>
         </div>
         <div class="match-bar-wrap">
           <div class="match-bar"></div>
         </div>
-        <div class="match-hint">正在调用豆包大模型进行深度评估, 约 10-30 秒</div>
+        <div class="match-hint">正在调用灵犀大模型进行深度评估, 约 10-30 秒</div>
       </div>
 
       <template v-else>
@@ -60,7 +60,7 @@
           </div>
           <div class="rec-reason">
             <el-icon><ChatLineRound /></el-icon>
-            <span>{{ item.match_reason || 'AI 评估中...' }}</span>
+            <span>{{ item.match_reason || '灵犀评估中...' }}</span>
           </div>
           <div class="rec-actions">
             <el-button
@@ -101,12 +101,40 @@
         <el-button type="primary" :loading="submitting" @click="submitApply">确认投递</el-button>
       </template>
     </el-dialog>
+
+    <!-- VIP 配额提醒弹窗 -->
+    <el-dialog v-model="vipDialogVisible" title="配额提醒" width="420px" :close-on-click-modal="false">
+      <div class="vip-remind">
+        <div class="vip-remind-icon">
+          <el-icon :size="40" color="#faad14"><MagicStick /></el-icon>
+        </div>
+        <div class="vip-remind-title">免费配额已用尽</div>
+        <div class="vip-remind-desc">
+          您的免费匹配配额已用完, 开通 VIP 会员可无限次匹配, 或购买单次继续使用
+        </div>
+        <div v-if="quotaInfo" class="vip-remind-quota">
+          <div class="quota-line">
+            <span>免费配额:</span>
+            <span>{{ quotaInfo.free_quota_used ?? 0 }} / {{ quotaInfo.free_quota_limit ?? 0 }}</span>
+          </div>
+          <div class="quota-line">
+            <span>付费配额:</span>
+            <span class="paid-num">{{ quotaInfo.paid_quota ?? 0 }} 次</span>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="vipDialogVisible = false">稍后再说</el-button>
+        <el-button type="primary" plain @click="goVipCenter">购买单次匹配</el-button>
+        <el-button type="warning" @click="goVipCenter">去充值 VIP</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Refresh, ChatLineRound, Position, Document, MagicStick } from '@element-plus/icons-vue'
 import { resumeApi } from '@/api/resume'
@@ -124,11 +152,16 @@ interface CacheState {
 }
 
 const route = useRoute()
+const router = useRouter()
 const resumes = ref<any[]>([])
 const resumeId = ref<number | null>(null)
 const list = ref<any[]>([])
 const loading = ref(false)
 const emptyText = ref('请先选择简历并点击匹配')
+
+// VIP 配额提醒弹窗
+const vipDialogVisible = ref(false)
+const quotaInfo = ref<any>(null)
 
 // 投递相关
 const dialogVisible = ref(false)
@@ -202,7 +235,7 @@ const fetchRecommend = async () => {
   if (!resumeId.value) return
   loading.value = true
   list.value = []
-  emptyText.value = 'AI 匹配中, 请稍候 (精排涉及大模型, 约 10-30 秒)...'
+  emptyText.value = '灵犀匹配中, 请稍候 (精排涉及大模型, 约 10-30 秒)...'
   try {
     const res: any = await matchApi.recommendJobs(resumeId.value, 10)
     list.value = res.data?.items || []
@@ -212,8 +245,15 @@ const fetchRecommend = async () => {
     // 持久化匹配结果
     saveCache()
   } catch (e: any) {
-    emptyText.value = '匹配请求失败, 请稍后重试'
-    ElMessage.error(e?.message || '匹配请求失败, 请稍后重试')
+    // 1008 = 配额不足, 弹出 VIP 升级提醒
+    if (e?.code === 1008) {
+      quotaInfo.value = e.data?.quota_info || null
+      vipDialogVisible.value = true
+      emptyText.value = '配额不足, 请开通 VIP 后重试'
+    } else {
+      emptyText.value = '匹配请求失败, 请稍后重试'
+      ElMessage.error(e?.message || '匹配请求失败, 请稍后重试')
+    }
   } finally {
     loading.value = false
   }
@@ -267,6 +307,12 @@ const scoreColor = (s: number) => {
   return '#ff4d4f'
 }
 
+// 跳转 VIP 中心
+const goVipCenter = () => {
+  vipDialogVisible.value = false
+  router.push('/seeker/vip')
+}
+
 onMounted(fetchResumes)
 </script>
 
@@ -276,7 +322,7 @@ onMounted(fetchResumes)
 .label { font-weight: 600; color: var(--text-primary); }
 .rec-list { display: flex; flex-direction: column; gap: 12px; }
 
-/* ===== AI 匹配动画 ===== */
+/* ===== 灵犀匹配动画 ===== */
 .matching-animation {
   display: flex; flex-direction: column; align-items: center;
   padding: 60px 20px; background: #fff; border-radius: 12px;
@@ -354,4 +400,16 @@ onMounted(fetchResumes)
   margin-bottom: 10px;
 }
 .rec-actions { display: flex; gap: 8px; }
+
+/* ===== VIP 提醒弹窗 ===== */
+.vip-remind { text-align: center; padding: 8px 0; }
+.vip-remind-icon { margin-bottom: 12px; }
+.vip-remind-title { font-size: 18px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px; }
+.vip-remind-desc { font-size: 14px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 16px; }
+.vip-remind-quota {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px 16px; background: #fffbe6; border-radius: 8px;
+}
+.quota-line { display: flex; justify-content: space-between; font-size: 13px; color: var(--text-secondary); }
+.paid-num { color: #faad14; font-weight: 600; }
 </style>

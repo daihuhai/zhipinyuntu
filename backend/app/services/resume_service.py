@@ -1,6 +1,6 @@
 """
 简历业务服务
-- 上传 + 解析 (调用豆包, LLM 阻塞操作放到线程池避免卡死事件循环)
+- 上传 + 解析 (调用灵犀大模型, LLM 阻塞操作放到线程池避免卡死事件循环)
 - 列表 / 详情 / 删除
 - 向量生成 (用于 M4 匹配)
 """
@@ -56,11 +56,11 @@ class ResumeService:
         db.commit()
         db.refresh(resume)
 
-        # 3. 提取文本 + 豆包结构化 (放到线程池, 避免阻塞事件循环)
+        # 3. 提取文本 + 灵犀结构化 (放到线程池, 避免阻塞事件循环)
         try:
             abs_path = file_info["abs_path"]
             text = await asyncio.to_thread(doc_parser.extract_text, abs_path)
-            parsed = await asyncio.to_thread(doc_parser.parse_resume, text)
+            parsed, ai_usage = await asyncio.to_thread(doc_parser.parse_resume, text)
 
             # 4. 回填结构化字段
             self._fill_resume_fields(resume, parsed)
@@ -81,7 +81,7 @@ class ResumeService:
             except Exception:
                 pass  # 图谱同步失败不影响主流程
 
-            # 7. 记录 AI 解析操作日志
+            # 7. 记录灵犀解析操作日志
             try:
                 from app.services.admin_service import admin_service
                 admin_service.write_system_log(
@@ -89,7 +89,9 @@ class ResumeService:
                     action="AI_RESUME_PARSE",
                     target_type="resume",
                     target_id=resume.id,
-                    detail=f"大模型解析简历: {resume.name or '未知'} (ID:{resume.id}), 文件: {file_info['url']}",
+                    detail=f"灵犀大模型解析简历: {resume.name or '未知'} (ID:{resume.id}), 文件: {file_info['url']}",
+                    tokens_in=ai_usage.get("prompt_tokens", 0),
+                    tokens_out=ai_usage.get("completion_tokens", 0),
                 )
             except Exception:
                 pass  # 日志写入失败不影响主流程
@@ -111,7 +113,7 @@ class ResumeService:
                     action="AI_RESUME_PARSE_FAILED",
                     target_type="resume",
                     target_id=resume.id,
-                    detail=f"大模型解析失败: {str(e)[:200]}",
+                    detail=f"灵犀大模型解析失败: {str(e)[:200]}",
                 )
             except Exception:
                 pass

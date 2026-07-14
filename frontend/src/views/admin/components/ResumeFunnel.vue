@@ -1,14 +1,14 @@
 <template>
   <div class="dc-panel">
     <div class="dc-panel-title">
-      <span>简历解析次数 & AI Token 消耗</span>
+      <span>简历解析次数 & 灵犀 Token 消耗</span>
       <el-tag size="small" type="success" effect="dark" class="live-tag">实时</el-tag>
     </div>
 
-    <!-- AI Token 消耗汇总卡片 -->
+    <!-- 灵犀 Token 消耗汇总 -->
     <div class="ai-summary">
       <div class="summary-card total">
-        <div class="summary-label">AI 总调用</div>
+        <div class="summary-label">灵犀总调用</div>
         <div class="summary-value">{{ aiData.total_calls || 0 }}<span class="unit">次</span></div>
       </div>
       <div class="summary-card token">
@@ -17,7 +17,7 @@
       </div>
     </div>
 
-    <!-- AI 调用分类明细 -->
+    <!-- 灵犀调用分类明细 -->
     <div class="ai-breakdown">
       <div v-for="item in (aiData.breakdown || [])" :key="item.label" class="breakdown-item">
         <div class="breakdown-header">
@@ -178,7 +178,7 @@ watch(() => [props.parseTrend, props.aiUsage], render, { deep: true })
 }
 .live-tag { font-size: 10px; }
 
-/* AI 汇总卡片 */
+/* 灵犀汇总卡片 */
 .ai-summary {
   display: flex;
   gap: 12px;
@@ -215,7 +215,7 @@ watch(() => [props.parseTrend, props.aiUsage], render, { deep: true })
   margin-left: 2px;
 }
 
-/* AI 分类明细 */
+/* 灵犀分类明细 */
 .ai-breakdown {
   display: flex;
   flex-direction: column;

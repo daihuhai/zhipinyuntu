@@ -1,12 +1,12 @@
 <!--
-  操作日志 (管理员) - 含 AI 调用、数据导出、管理员操作
+  操作日志 (管理员) - 含灵犀调用、数据导出、管理员操作
 -->
 <template>
   <div class="logs-page">
     <el-card shadow="never" class="filter-card">
       <el-select v-model="actionFilter" placeholder="操作类型" clearable style="width: 220px" @change="fetchList">
         <el-option label="全部" value="" />
-        <el-option-group label="AI 大模型操作">
+        <el-option-group label="灵犀大模型操作">
           <el-option label="简历解析" value="AI_RESUME_PARSE" />
           <el-option label="简历解析失败" value="AI_RESUME_PARSE_FAILED" />
           <el-option label="缺失项分析" value="AI_GAP_ANALYSIS" />
@@ -21,6 +21,7 @@
           <el-option label="删除职位" value="DELETE_JOB" />
           <el-option label="删除简历" value="DELETE_RESUME" />
           <el-option label="批量操作" value="BATCH_UPDATE_USER_STATUS" />
+          <el-option label="设置VIP权限" value="ADMIN_SET_VIP" />
         </el-option-group>
       </el-select>
       <el-button type="primary" :icon="Search" @click="fetchList">查询</el-button>
@@ -102,10 +103,10 @@ const fetchList = async () => {
 
 const actionText = (a: string) => {
   const map: Record<string, string> = {
-    AI_RESUME_PARSE: 'AI 简历解析',
-    AI_RESUME_PARSE_FAILED: 'AI 解析失败',
-    AI_GAP_ANALYSIS: 'AI 缺失分析',
-    AI_MATCH_RECOMMEND: 'AI 智能匹配',
+    AI_RESUME_PARSE: '灵犀简历解析',
+    AI_RESUME_PARSE_FAILED: '灵犀解析失败',
+    AI_GAP_ANALYSIS: '灵犀缺失分析',
+    AI_MATCH_RECOMMEND: '灵犀智能匹配',
     EXPORT_DATA: '数据导出',
     UPDATE_USER_STATUS: '用户状态修改',
     UPDATE_USER_ROLE: '用户角色修改',
@@ -116,6 +117,7 @@ const actionText = (a: string) => {
     BATCH_UPDATE_USER_STATUS: '批量更新用户',
     BATCH_UPDATE_JOB_STATUS: '批量更新职位',
     BATCH_DELETE_RESUMES: '批量删除简历',
+    ADMIN_SET_VIP: '设置VIP权限',
   }
   return map[a] || a || '-'
 }
@@ -125,6 +127,7 @@ const actionTagType = (a: string): any => {
   if (a === 'EXPORT_DATA') return 'success'
   if (a?.startsWith('DELETE') || a?.startsWith('BATCH_DELETE')) return 'danger'
   if (a?.startsWith('BATCH_UPDATE')) return 'info'
+  if (a === 'ADMIN_SET_VIP') return 'success'
   return ''
 }
 

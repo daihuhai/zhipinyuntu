@@ -33,7 +33,7 @@
           </el-row>
           <el-row :gutter="16">
             <el-col :span="12">
-              <el-form-item label="联系人">
+              <el-form-item label="联系人 (HR姓名)">
                 <el-input v-model="form.contact_person" placeholder="请输入联系人姓名" />
               </el-form-item>
             </el-col>
@@ -61,6 +61,37 @@
             <el-button type="warning" @click="pwdDialogRef?.open()">修改密码</el-button>
           </el-form-item>
         </el-form>
+      </div>
+    </el-card>
+
+    <!-- VIP 会员卡片 -->
+    <el-card shadow="never" class="profile-card vip-card" style="margin-top: 20px;">
+      <template #header>
+        <div class="card-header" style="display: flex; align-items: center; gap: 8px;">
+          <el-icon style="color: #faad14;"><GoldMedal /></el-icon>
+          <span>VIP 会员</span>
+        </div>
+      </template>
+      <div v-if="vipInfo" class="vip-info">
+        <div class="vip-status">
+          <el-tag v-if="vipInfo.is_vip" type="warning" effect="dark" size="large">
+            <el-icon><GoldMedal /></el-icon> VIP 会员
+          </el-tag>
+          <el-tag v-else type="info" size="large">普通用户</el-tag>
+          <span v-if="vipInfo.is_vip && vipInfo.vip_plan_type" class="vip-plan">
+            {{ vipInfo.vip_plan_type }} · 剩余 {{ vipInfo.vip_remaining_days || 0 }} 天
+          </span>
+        </div>
+        <div class="vip-quota">
+          <span>免费额度: {{ vipInfo.free_quota_used || 0 }} / 2</span>
+          <span v-if="vipInfo.paid_quota !== undefined">付费额度: {{ vipInfo.paid_quota }}</span>
+        </div>
+        <el-button type="warning" @click="router.push('/employer/vip')">
+          {{ vipInfo.is_vip ? '续费 VIP' : '开通 VIP' }}
+        </el-button>
+      </div>
+      <div v-else class="vip-info">
+        <el-button type="warning" @click="router.push('/employer/vip')">查看 VIP 会员</el-button>
       </div>
     </el-card>
 
@@ -157,7 +188,14 @@ const handleReset = () => {
   fetchInfo()
 }
 
-onMounted(fetchInfo)
+const fetchVipInfo = async () => {
+  try {
+    const res: any = await vipApi.getQuota()
+    vipInfo.value = res.data || null
+  } catch {}
+}
+
+onMounted(() => { fetchInfo(); fetchVipInfo() })
 </script>
 
 <style scoped>
@@ -166,4 +204,9 @@ onMounted(fetchInfo)
 .card-header { font-weight: 600; }
 .readonly-section { margin-bottom: 24px; }
 .edit-form { margin-top: 8px; }
+.vip-card { border: 1px solid rgba(250, 173, 20, 0.3); }
+.vip-info { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.vip-status { display: flex; align-items: center; gap: 10px; }
+.vip-plan { font-size: 13px; color: var(--text-secondary); }
+.vip-quota { font-size: 13px; color: var(--text-secondary); display: flex; gap: 16px; }
 </style>

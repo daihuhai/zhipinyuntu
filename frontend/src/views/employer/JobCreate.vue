@@ -1,5 +1,5 @@
 <!--
-  发布职位 (企业) - 支持 JD 文件上传 + 文本粘贴 + 豆包 AI 解析
+  发布职位 (企业) - 支持 JD 文件上传 + 文本粘贴 + 灵犀解析
 -->
 <template>
   <div class="job-create-page">
@@ -41,13 +41,13 @@
               <UploadFilled v-else />
             </el-icon>
             <div class="el-upload__text">
-              {{ uploading ? '正在上传并 AI 解析中...' : '拖拽 JD 文件到此处, 或' }}
+              {{ uploading ? '正在上传并灵犀解析中...' : '拖拽 JD 文件到此处, 或' }}
               <em v-if="!uploading">点击上传</em>
             </div>
           </template>
           <template #tip>
             <div class="el-upload__tip">
-              支持 .pdf / .doc / .docx 格式, 文件不超过 10MB, 上传后自动 AI 解析填充表单
+              支持 .pdf / .doc / .docx 格式, 文件不超过 10MB, 上传后自动灵犀解析填充表单
             </div>
           </template>
         </el-upload>
@@ -55,7 +55,7 @@
         <!-- 解析结果状态条 -->
         <div v-if="uploading" class="jd-status parsing">
           <el-icon class="rotating"><Loading /></el-icon>
-          <span>正在上传并调用 AI 解析 JD, 请耐心等待 (doubao-seed 推理模型, 预计 1-3 分钟)...</span>
+          <span>正在上传并调用灵犀大模型解析 JD, 请耐心等待 (灵犀大模型（推理）, 预计 1-3 分钟)...</span>
         </div>
         <div v-else-if="jdFilename" class="jd-status success">
           <el-icon><Check /></el-icon>
@@ -63,11 +63,11 @@
           <el-button link type="danger" @click="clearJD">清除</el-button>
         </div>
 
-        <!-- AI 解析结果摘要 -->
+        <!-- 灵犀解析结果摘要 -->
         <div v-if="parsedSummary" class="parsed-summary">
           <div class="summary-header">
             <el-icon><MagicStick /></el-icon>
-            <span class="summary-title">AI 智能解析结果</span>
+            <span class="summary-title">灵犀智能解析结果</span>
             <el-tag size="small" type="success" effect="plain">{{ parsedSummary.filledCount }} 个字段</el-tag>
           </div>
           <div class="summary-fields">
@@ -81,7 +81,7 @@
 
         <!-- 解析出的技能要求预览 -->
         <div v-if="parsedRequirements.length" class="parsed-skills">
-          <div class="skills-title">AI 解析出的技能要求 (发布时自动写入):</div>
+          <div class="skills-title">灵犀解析出的技能要求 (发布时自动写入):</div>
           <div class="skills-tags">
             <el-tag
               v-for="(req, idx) in parsedRequirements"
@@ -103,7 +103,7 @@
             v-model="form.parse_text"
             type="textarea"
             :rows="5"
-            placeholder="粘贴职位描述文本, 点击下方按钮 AI 解析后自动填充表单; 也可直接点击立即发布自动解析"
+            placeholder="粘贴职位描述文本, 点击下方按钮灵犀解析后自动填充表单; 也可直接点击立即发布自动解析"
           />
           <el-button
             type="primary"
@@ -113,10 +113,10 @@
             class="parse-text-btn"
             @click="handleParseText"
           >
-            {{ parsingText ? 'AI 推理中 (约1-3分钟)...' : 'AI 解析文本' }}
+            {{ parsingText ? '灵犀推理中 (约1-3分钟)...' : '灵犀解析文本' }}
           </el-button>
           <div class="field-hint" style="margin-top: 6px">
-            提示: 粘贴 JD 文本后点击"AI 解析文本"可预览解析结果 (doubao-seed 推理模型, 约需 1-3 分钟); 也可直接点击"立即发布"自动解析
+            提示: 粘贴 JD 文本后点击"灵犀解析文本"可预览解析结果 (灵犀大模型（推理）, 约需 1-3 分钟); 也可直接点击"立即发布"自动解析
           </div>
         </el-form-item>
 
@@ -269,9 +269,9 @@ const handleUpload = async (options: any) => {
     // 检测解析结果是否为空
     const filledCount = countParsedFields(parsed)
     if (filledCount === 0) {
-      ElMessage.warning('JD 文件已上传, 但 AI 未能解析出有效字段, 请手动填写或检查文件内容')
+      ElMessage.warning('JD 文件已上传, 但灵犀未能解析出有效字段, 请手动填写或检查文件内容')
     } else {
-      ElMessage.success(`AI 解析完成, 已识别 ${filledCount} 个字段, ${parsedRequirements.value.length} 项技能要求`)
+      ElMessage.success(`灵犀解析完成, 已识别 ${filledCount} 个字段, ${parsedRequirements.value.length} 项技能要求`)
     }
   } catch (e: any) {
     ElMessage.error(e?.message || 'JD 文件上传解析失败')
@@ -280,7 +280,7 @@ const handleUpload = async (options: any) => {
   }
 }
 
-// 统计解析结果中有效字段数 (用于判断 AI 是否返回了有意义的数据)
+// 统计解析结果中有效字段数 (用于判断灵犀是否返回了有意义的数据)
 const countParsedFields = (parsed: any): number => {
   let count = 0
   const fields = ['title', 'company', 'work_city', 'experience_required',
@@ -293,7 +293,7 @@ const countParsedFields = (parsed: any): number => {
   return count
 }
 
-// 构建解析结果摘要 (展示 AI 解析了哪些字段)
+// 构建解析结果摘要 (展示灵犀解析了哪些字段)
 const buildParsedSummary = (parsed: any) => {
   const fields = [
     { key: 'title', label: '职位名称', value: parsed.title || '' },
@@ -310,7 +310,7 @@ const buildParsedSummary = (parsed: any) => {
   parsedSummary.value = { fields, filledCount }
 }
 
-// 将解析结果自动填充到表单 (AI 解析返回的字段强制覆盖, 确保表单与解析结果同步)
+// 将解析结果自动填充到表单 (灵犀解析返回的字段强制覆盖, 确保表单与解析结果同步)
 const applyParsed = (parsed: any, overwrite: boolean = false) => {
   const fields = ['title', 'company', 'work_city', 'experience_required',
     'education_required', 'description', 'job_type']
@@ -349,9 +349,9 @@ const handleParseText = async () => {
     buildParsedSummary(parsed)  // 构建解析结果摘要
     const filledCount = countParsedFields(parsed)
     if (filledCount === 0) {
-      ElMessage.warning('AI 未能从文本中解析出有效字段, 请手动填写或调整 JD 文本')
+      ElMessage.warning('灵犀未能从文本中解析出有效字段, 请手动填写或调整 JD 文本')
     } else {
-      ElMessage.success(`AI 解析完成, 已识别 ${filledCount} 个字段, ${parsedRequirements.value.length} 项技能要求`)
+      ElMessage.success(`灵犀解析完成, 已识别 ${filledCount} 个字段, ${parsedRequirements.value.length} 项技能要求`)
     }
   } catch (e: any) {
     ElMessage.error(e?.message || 'JD 文本解析失败')
@@ -389,10 +389,14 @@ const submit = async () => {
     ElMessage.warning('请输入职位名称, 或粘贴 JD 文本后自动解析')
     return
   }
+  if (form.salary_min != null && form.salary_max != null && form.salary_min > form.salary_max) {
+    ElMessage.warning('薪资上限不能低于薪资下限')
+    return
+  }
   submitting.value = true
   try {
     const payload = { ...form }
-    // 关键优化: 已解析过的职位(有title)不传 parse_text, 避免后端重复调用AI解析(约160秒)
+    // 关键优化: 已解析过的职位(有title)不传 parse_text, 避免后端重复调用灵犀解析(约160秒)
     if (payload.title?.trim()) {
       delete payload.parse_text
     }
@@ -500,7 +504,7 @@ const reset = () => {
   to { transform: rotate(360deg); }
 }
 
-/* AI 解析结果摘要 */
+/* 灵犀解析结果摘要 */
 .parsed-summary {
   background: linear-gradient(135deg, #f0f5ff 0%, #e6f4ff 100%);
   border: 1px solid #adc6ff;

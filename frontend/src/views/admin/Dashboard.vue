@@ -81,7 +81,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onBeforeUnmount, nextTick, ref } from 'vue'
-import { User, Document, Briefcase, Connection } from '@element-plus/icons-vue'
+import { User, Document, Briefcase, Connection, CirclePlus, Link, TrendCharts } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 import { adminApi } from '@/api/admin'
 
@@ -106,6 +106,9 @@ const kpiCards = computed(() => [
   { label: '简历总数', value: stats.value.resumes?.total || 0, icon: Document, color: '#52c41a', bg: '#f6ffed' },
   { label: '职位总数', value: stats.value.jobs?.total || 0, icon: Briefcase, color: '#faad14', bg: '#fffbe6' },
   { label: '匹配记录', value: stats.value.matches?.total || 0, icon: Connection, color: '#722ed1', bg: '#f9f0ff' },
+  { label: '今日新增用户', value: stats.value.today_new_users ?? '--', icon: CirclePlus, color: '#eb2f96', bg: '#fff0f6' },
+  { label: '今日匹配次数', value: stats.value.today_matches ?? '--', icon: Link, color: '#13c2c2', bg: '#e6fffb' },
+  { label: '活跃用户数', value: stats.value.active_users ?? '--', icon: TrendCharts, color: '#fa8c16', bg: '#fff7e6' },
 ])
 
 const roleText = (r: string) => ({ ROLE_SEEKER: '个人', ROLE_EMPLOYER: '企业', ROLE_ADMIN: '管理员' }[r] || r)

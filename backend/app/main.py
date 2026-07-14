@@ -33,7 +33,7 @@ async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     logger.info(f"🚀 {settings.APP_NAME} v{settings.APP_VERSION} 启动中...")
     logger.info(f"   运行环境: {settings.APP_ENV}")
-    logger.info(f"   豆包模型: {settings.ARK_CHAT_MODEL}")
+    logger.info(f"   灵犀大模型: {settings.ARK_CHAT_MODEL}")
 
     # 初始化数据库 (开发环境: 自动建表 + 默认管理员)
     from app.db.base import init_db, SessionLocal

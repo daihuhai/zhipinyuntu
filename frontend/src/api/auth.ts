@@ -39,7 +39,7 @@ export const authApi = {
   login: (data: LoginParams) => request.post('/auth/login', data),
   register: (data: RegisterParams) => request.post('/auth/register', data),
   logout: () => request.post('/auth/logout'),
-  refresh: () => request.post('/auth/refresh'),
+  refresh: (refreshToken: string) => request.post('/auth/refresh', { refresh_token: refreshToken }),
   /** 获取当前用户信息 */
   me: () => request.get('/auth/me'),
   /** 修改个人信息 */

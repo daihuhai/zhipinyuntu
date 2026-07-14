@@ -23,6 +23,21 @@ class AdminService:
     """管理后台业务"""
 
     # ===== 用户管理 =====
+    def _build_user_filter(self, role: str | None, status: int | None, keyword: str):
+        """构建用户查询条件, 返回 where 条件列表"""
+        conditions = []
+        if role:
+            conditions.append(SysUser.role == role)
+        if status is not None:
+            conditions.append(SysUser.status == status)
+        if keyword:
+            conditions.append(
+                (SysUser.username.contains(keyword))
+                | (SysUser.nickname.contains(keyword))
+                | (SysUser.phone.contains(keyword))
+            )
+        return conditions
+
     def list_users(
         self,
         db: Session,
@@ -32,22 +47,21 @@ class AdminService:
         status: int | None = None,
         keyword: str = "",
     ) -> dict[str, Any]:
-        stmt = select(SysUser)
-        if role:
-            stmt = stmt.where(SysUser.role == role)
-        if status is not None:
-            stmt = stmt.where(SysUser.status == status)
-        if keyword:
-            stmt = stmt.where(
-                (SysUser.username.contains(keyword))
-                | (SysUser.nickname.contains(keyword))
-                | (SysUser.phone.contains(keyword))
-            )
-        stmt = stmt.order_by(SysUser.created_at.desc())
+        conditions = self._build_user_filter(role, status, keyword)
 
-        total = len(list(db.execute(stmt).scalars()))
-        offset = (page - 1) * size
-        items = list(db.execute(stmt.offset(offset).limit(size)).scalars())
+        # COUNT(*) 查询, 避免全量拉取
+        count_stmt = select(func.count(SysUser.id))
+        if conditions:
+            count_stmt = count_stmt.where(*conditions)
+        total = db.execute(count_stmt).scalar() or 0
+
+        # 分页数据查询
+        data_stmt = select(SysUser)
+        if conditions:
+            data_stmt = data_stmt.where(*conditions)
+        items = list(db.execute(
+            data_stmt.order_by(SysUser.created_at.desc()).offset((page - 1) * size).limit(size)
+        ).scalars())
         return {
             "items": [self._user_dict(u) for u in items],
             "total": total,
@@ -166,18 +180,25 @@ class AdminService:
         keyword: str = "",
         parse_status: int | None = None,
     ) -> dict[str, Any]:
-        stmt = select(Resume)
+        conditions = []
         if parse_status is not None:
-            stmt = stmt.where(Resume.parse_status == parse_status)
+            conditions.append(Resume.parse_status == parse_status)
         if keyword:
-            stmt = stmt.where(
+            conditions.append(
                 (Resume.name.contains(keyword)) | (Resume.school.contains(keyword))
             )
-        stmt = stmt.order_by(Resume.created_at.desc())
 
-        total = len(list(db.execute(stmt).scalars()))
-        offset = (page - 1) * size
-        items = list(db.execute(stmt.offset(offset).limit(size)).scalars())
+        count_stmt = select(func.count(Resume.id))
+        if conditions:
+            count_stmt = count_stmt.where(*conditions)
+        total = db.execute(count_stmt).scalar() or 0
+
+        data_stmt = select(Resume)
+        if conditions:
+            data_stmt = data_stmt.where(*conditions)
+        items = list(db.execute(
+            data_stmt.order_by(Resume.created_at.desc()).offset((page - 1) * size).limit(size)
+        ).scalars())
         return {
             "items": [self._resume_dict(r) for r in items],
             "total": total,
@@ -228,18 +249,25 @@ class AdminService:
         keyword: str = "",
         status: int | None = None,
     ) -> dict[str, Any]:
-        stmt = select(Job)
+        conditions = []
         if status is not None:
-            stmt = stmt.where(Job.status == status)
+            conditions.append(Job.status == status)
         if keyword:
-            stmt = stmt.where(
+            conditions.append(
                 (Job.title.contains(keyword)) | (Job.company.contains(keyword))
             )
-        stmt = stmt.order_by(Job.created_at.desc())
 
-        total = len(list(db.execute(stmt).scalars()))
-        offset = (page - 1) * size
-        items = list(db.execute(stmt.offset(offset).limit(size)).scalars())
+        count_stmt = select(func.count(Job.id))
+        if conditions:
+            count_stmt = count_stmt.where(*conditions)
+        total = db.execute(count_stmt).scalar() or 0
+
+        data_stmt = select(Job)
+        if conditions:
+            data_stmt = data_stmt.where(*conditions)
+        items = list(db.execute(
+            data_stmt.order_by(Job.created_at.desc()).offset((page - 1) * size).limit(size)
+        ).scalars())
         return {
             "items": [self._job_dict(j) for j in items],
             "total": total,
@@ -307,7 +335,8 @@ class AdminService:
             stmt = stmt.where(AdminLog.action == action)
         stmt = stmt.order_by(AdminLog.created_at.desc())
 
-        total = len(list(db.execute(stmt).scalars()))
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        total = db.execute(count_stmt).scalar() or 0
         offset = (page - 1) * size
         items = list(db.execute(stmt.offset(offset).limit(size)).scalars())
         return {
@@ -338,8 +367,10 @@ class AdminService:
         target_id: int | None = None,
         detail: str | None = None,
         ip: str | None = None,
+        tokens_in: int | None = None,
+        tokens_out: int | None = None,
     ) -> None:
-        """写入操作日志 (admin_id 可空, 用于系统自动操作如 AI 调用)"""
+        """写入操作日志 (admin_id 可空, 用于系统自动操作如灵犀调用)"""
         log = AdminLog(
             admin_id=admin_id,
             action=action,
@@ -347,6 +378,8 @@ class AdminService:
             target_id=target_id,
             detail=detail,
             ip=ip,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
         )
         db.add(log)
         db.commit()
@@ -358,8 +391,10 @@ class AdminService:
         detail: str,
         target_type: str | None = None,
         target_id: int | None = None,
+        tokens_in: int | None = None,
+        tokens_out: int | None = None,
     ) -> None:
-        """记录系统级操作 (AI 调用/数据导出等, 无需管理员发起)"""
+        """记录系统级操作 (灵犀调用/数据导出等, 无需管理员发起)"""
         log = AdminLog(
             admin_id=None,
             action=action,
@@ -367,6 +402,8 @@ class AdminService:
             target_id=target_id,
             detail=detail,
             ip="system",
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
         )
         db.add(log)
         db.commit()
@@ -511,14 +548,21 @@ class AdminService:
                 if log_action in ai_call_counts:
                     ai_call_counts[log_action] += 1
 
-        # 6. AI Token 消耗估算 (基于操作次数 × 单次估算 token)
-        TOKEN_ESTIMATE = {
-            "AI_RESUME_PARSE": 3500,       # 简历解析: 输入简历文本 + 输出结构化 JSON
-            "AI_RESUME_PARSE_FAILED": 800,  # 失败也消耗了部分 token
-            "AI_GAP_ANALYSIS": 2500,        # 缺失分析: 输入简历 + 输出建议
-            "AI_MATCH_RECOMMEND": 1500,     # 匹配推荐: 输入简历+岗位 + 输出评分
-        }
-        ai_token_total = sum(ai_call_counts[k] * TOKEN_ESTIMATE[k] for k in ai_call_counts)
+        # 6. 灵犀 Token 消耗 (从 admin_log 表真实汇总, 非估算)
+        # 按 action 分组汇总 tokens_in + tokens_out
+        token_rows = db.execute(
+            select(AdminLog.action, func.sum(AdminLog.tokens_in), func.sum(AdminLog.tokens_out))
+            .where(AdminLog.action.in_([
+                "AI_RESUME_PARSE", "AI_RESUME_PARSE_FAILED",
+                "AI_GAP_ANALYSIS", "AI_MATCH_RECOMMEND"
+            ]))
+            .group_by(AdminLog.action)
+        ).all()
+        token_map = {row[0]: {"in": row[1] or 0, "out": row[2] or 0} for row in token_rows}
+        ai_token_total = sum(
+            token_map.get(k, {}).get("in", 0) + token_map.get(k, {}).get("out", 0)
+            for k in ai_call_counts
+        )
         ai_call_total = sum(ai_call_counts.values())
 
         return {
@@ -544,14 +588,18 @@ class AdminService:
                 "total_calls": ai_call_total,
                 "total_tokens": ai_token_total,
                 "breakdown": [
-                    {"label": "简历解析", "count": ai_call_counts["AI_RESUME_PARSE"],
-                     "tokens": ai_call_counts["AI_RESUME_PARSE"] * TOKEN_ESTIMATE["AI_RESUME_PARSE"]},
-                    {"label": "解析失败", "count": ai_call_counts["AI_RESUME_PARSE_FAILED"],
-                     "tokens": ai_call_counts["AI_RESUME_PARSE_FAILED"] * TOKEN_ESTIMATE["AI_RESUME_PARSE_FAILED"]},
-                    {"label": "缺失分析", "count": ai_call_counts["AI_GAP_ANALYSIS"],
-                     "tokens": ai_call_counts["AI_GAP_ANALYSIS"] * TOKEN_ESTIMATE["AI_GAP_ANALYSIS"]},
-                    {"label": "智能匹配", "count": ai_call_counts["AI_MATCH_RECOMMEND"],
-                     "tokens": ai_call_counts["AI_MATCH_RECOMMEND"] * TOKEN_ESTIMATE["AI_MATCH_RECOMMEND"]},
+                    {"label": "灵犀简历解析", "count": ai_call_counts["AI_RESUME_PARSE"],
+                     "tokens": token_map.get("AI_RESUME_PARSE", {}).get("in", 0)
+                              + token_map.get("AI_RESUME_PARSE", {}).get("out", 0)},
+                    {"label": "灵犀解析失败", "count": ai_call_counts["AI_RESUME_PARSE_FAILED"],
+                     "tokens": token_map.get("AI_RESUME_PARSE_FAILED", {}).get("in", 0)
+                              + token_map.get("AI_RESUME_PARSE_FAILED", {}).get("out", 0)},
+                    {"label": "灵犀缺失分析", "count": ai_call_counts["AI_GAP_ANALYSIS"],
+                     "tokens": token_map.get("AI_GAP_ANALYSIS", {}).get("in", 0)
+                              + token_map.get("AI_GAP_ANALYSIS", {}).get("out", 0)},
+                    {"label": "灵犀智能匹配", "count": ai_call_counts["AI_MATCH_RECOMMEND"],
+                     "tokens": token_map.get("AI_MATCH_RECOMMEND", {}).get("in", 0)
+                              + token_map.get("AI_MATCH_RECOMMEND", {}).get("out", 0)},
                 ],
             },
         }

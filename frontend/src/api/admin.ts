@@ -21,7 +21,7 @@ export const adminApi = {
   /** 实时操作日志 */
   realtimeLogs: (limit = 20) => request.get('/admin/dashboard/realtime-logs', { params: { limit } }),
   /** 用户列表 */
-  users: (params: { page?: number; size?: number; role?: string; status?: number; keyword?: string }) =>
+  users: (params: { page?: number; size?: number; role?: string; status?: number; keyword?: string; username?: string; phone?: string }) =>
     request.get('/admin/users', { params }),
   /** 用户详情 */
   userDetail: (id: number) => request.get(`/admin/users/${id}`),

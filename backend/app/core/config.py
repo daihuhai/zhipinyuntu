@@ -32,10 +32,12 @@ class Settings(BaseSettings):
     # ===== Redis =====
     REDIS_URL: str = "redis://localhost:6379/0"
 
-    # ===== Neo4j =====
-    NEO4J_URL: str = "bolt://localhost:7687"
-    NEO4J_USER: str = "neo4j"
-    NEO4J_PASSWORD: str = "zhipin123"
+    # ===== NebulaGraph 图数据库 =====
+    NEBULA_HOST: str = "127.0.0.1"
+    NEBULA_PORT: int = 9669
+    NEBULA_USER: str = "root"
+    NEBULA_PASSWORD: str = "nebula"
+    NEBULA_SPACE: str = "zhipin"
 
     # ===== 文件存储 =====
     STORAGE_TYPE: str = "local"

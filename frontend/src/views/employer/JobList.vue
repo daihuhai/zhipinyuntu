@@ -116,15 +116,28 @@ const formatDate = (iso?: string) => iso ? new Date(iso).toLocaleString('zh-CN',
 
 const handleCommand = async (cmd: string, row: any) => {
   if (cmd === 'delete') {
-    await ElMessageBox.confirm('确认删除该职位?', '提示', { type: 'warning' })
-    await jobApi.remove(row.id)
-    ElMessage.success('已删除')
+    try {
+      await ElMessageBox.confirm('确认删除该职位?', '提示', { type: 'warning' })
+    } catch {
+      return
+    }
+    try {
+      await jobApi.remove(row.id)
+      ElMessage.success('已删除')
+      fetchList()
+    } catch (e: any) {
+      ElMessage.error(e?.message || '删除失败')
+    }
   } else if (cmd.startsWith('status_')) {
     const status = Number(cmd.split('_')[1])
-    await jobApi.updateStatus(row.id, status)
-    ElMessage.success('状态已更新')
+    try {
+      await jobApi.updateStatus(row.id, status)
+      ElMessage.success('状态已更新')
+      fetchList()
+    } catch (e: any) {
+      ElMessage.error(e?.message || '操作失败')
+    }
   }
-  fetchList()
 }
 
 onMounted(fetchList)

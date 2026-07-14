@@ -28,6 +28,9 @@ class RegisterRequest(BaseModel):
     nickname: Optional[str] = None
     real_name: Optional[str] = None
     gender: Optional[str] = None
+    id_card: Optional[str] = Field(None, max_length=18, description="身份证号")
+    education: Optional[str] = Field(None, max_length=32, description="最高学历")
+    work_years: Optional[int] = Field(None, ge=0, le=50, description="工作年限")
 
     # 企业用户字段
     company_name: Optional[str] = None

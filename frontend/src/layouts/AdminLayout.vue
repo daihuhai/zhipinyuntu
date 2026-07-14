@@ -12,7 +12,10 @@ const menuItems = [
   { index: '/admin/users', icon: 'User', title: '用户管理' },
   { index: '/admin/resumes', icon: 'Document', title: '简历管理' },
   { index: '/admin/jobs', icon: 'Briefcase', title: '职位管理' },
+  { index: '/admin/vip', icon: 'GoldMedal', title: 'VIP 管理' },
+  { index: '/admin/revenue', icon: 'Money', title: '营收监控' },
   { index: '/admin/logs', icon: 'Tickets', title: '操作日志' },
+  { index: '/admin/feedbacks', icon: 'ChatLineSquare', title: '反馈管理' },
 ]
 const handleSelect = (index: string) => router.push(index)
 const handleLogout = () => { userStore.logout(); router.push('/login') }

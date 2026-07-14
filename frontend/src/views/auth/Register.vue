@@ -21,6 +21,9 @@ const form = reactive({
   real_name: '',
   gender: '男',
   nickname: '',
+  id_card: '',
+  education: '',
+  work_years: null as number | null,
   // 企业用户
   company_name: '',
   credit_code: '',
@@ -60,6 +63,7 @@ const rules: FormRules = {
   ],
   company_name: [{ required: true, message: '请输入企业名称', trigger: 'blur' }],
   credit_code: [{ required: true, message: '请输入统一社会信用代码', trigger: 'blur' }],
+  contact_person: [{ required: true, message: '请输入联系人姓名', trigger: 'blur' }],
 }
 
 // 密码强度计算 (0-4)
@@ -99,6 +103,9 @@ const handleRegister = async () => {
         payload.real_name = form.real_name || undefined
         payload.nickname = form.nickname || form.real_name || undefined
         payload.gender = form.gender
+        payload.id_card = form.id_card || undefined
+        payload.education = form.education || undefined
+        payload.work_years = form.work_years ?? undefined
       } else {
         payload.company_name = form.company_name
         payload.credit_code = form.credit_code
@@ -109,7 +116,7 @@ const handleRegister = async () => {
       ElMessage.success('注册成功, 即将跳转登录')
       ;(document.activeElement as HTMLElement | null)?.blur()
       window.getSelection()?.removeAllRanges()
-      setTimeout(() => router.push('/login'), 1200)
+      setTimeout(() => router.push({ path: '/login', query: { username: form.username } }), 1200)
     } catch (e) {
       // 错误信息已由 axios 拦截器统一提示
     } finally {
@@ -158,7 +165,7 @@ const handleRegister = async () => {
           </div>
           <h1 class="brand-title">智聘云图</h1>
         </div>
-        <p class="brand-slogan">AI 驱动的智能招聘平台</p>
+        <p class="brand-slogan">灵犀驱动的智能招聘平台</p>
         <div class="brand-features">
           <div class="feature-item">
             <span class="feature-check">✓</span>
@@ -237,17 +244,17 @@ const handleRegister = async () => {
           label-position="top"
           @keyup.enter="handleRegister"
         >
-          <el-form-item prop="username">
-            <el-input v-model="form.username" placeholder="用户名" :prefix-icon="User" clearable />
+          <el-form-item prop="username" label="用户名">
+            <el-input v-model="form.username" placeholder="3-64位字母或数字" :prefix-icon="User" clearable />
           </el-form-item>
-          <el-form-item prop="phone">
-            <el-input v-model="form.phone" placeholder="手机号" :prefix-icon="Phone" clearable />
+          <el-form-item prop="phone" label="手机号">
+            <el-input v-model="form.phone" placeholder="请输入手机号" :prefix-icon="Phone" clearable />
           </el-form-item>
-          <el-form-item prop="email">
-            <el-input v-model="form.email" placeholder="邮箱 (选填)" :prefix-icon="Message" clearable />
+          <el-form-item prop="email" label="邮箱">
+            <el-input v-model="form.email" placeholder="请输入邮箱 (选填)" :prefix-icon="Message" clearable />
           </el-form-item>
-          <el-form-item prop="password">
-            <el-input v-model="form.password" type="password" placeholder="密码 (至少8位, 含字母+数字)" :prefix-icon="Lock" show-password @input="onPasswordInput" />
+          <el-form-item prop="password" label="密码">
+            <el-input v-model="form.password" type="password" placeholder="至少8位, 含字母+数字" :prefix-icon="Lock" show-password @input="onPasswordInput" />
           </el-form-item>
 
           <!-- 密码强度提示 -->
@@ -265,33 +272,55 @@ const handleRegister = async () => {
             </span>
           </div>
 
-          <el-form-item prop="confirmPassword" class="mt-2">
-            <el-input v-model="form.confirmPassword" type="password" placeholder="确认密码" :prefix-icon="Lock" show-password />
+          <el-form-item prop="confirmPassword" label="确认密码" class="mt-2">
+            <el-input v-model="form.confirmPassword" type="password" placeholder="请再次输入密码" :prefix-icon="Lock" show-password />
           </el-form-item>
 
           <!-- 个人用户额外字段 -->
           <template v-if="form.role === 'ROLE_SEEKER'">
-            <el-form-item>
-              <el-input v-model="form.real_name" placeholder="真实姓名 (选填)" clearable />
+            <el-form-item label="真实姓名">
+              <el-input v-model="form.real_name" placeholder="请输入真实姓名 (选填)" clearable />
             </el-form-item>
-            <el-form-item>
+            <el-form-item label="性别">
               <el-radio-group v-model="form.gender">
                 <el-radio value="男">男</el-radio>
                 <el-radio value="女">女</el-radio>
               </el-radio-group>
             </el-form-item>
+            <el-form-item label="身份证号">
+              <el-input v-model="form.id_card" placeholder="请输入身份证号 (选填)" maxlength="18" clearable />
+            </el-form-item>
+            <el-row :gutter="12">
+              <el-col :span="12">
+                <el-form-item label="最高学历">
+                  <el-select v-model="form.education" placeholder="请选择" style="width: 100%" clearable>
+                    <el-option label="高中及以下" value="高中及以下" />
+                    <el-option label="大专" value="大专" />
+                    <el-option label="本科" value="本科" />
+                    <el-option label="硕士" value="硕士" />
+                    <el-option label="博士" value="博士" />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="工作年限">
+                  <el-input-number v-model="form.work_years" :min="0" :max="50" placeholder="年" style="width: 100%" controls-position="right" />
+                </el-form-item>
+              </el-col>
+            </el-row>
           </template>
 
           <!-- 企业用户额外字段 -->
           <template v-if="form.role === 'ROLE_EMPLOYER'">
-            <el-form-item prop="company_name">
-              <el-input v-model="form.company_name" placeholder="企业名称" clearable />
+            <el-form-item prop="company_name" label="企业名称">
+              <el-input v-model="form.company_name" placeholder="请输入企业全称" clearable />
             </el-form-item>
-            <el-form-item prop="credit_code">
+            <el-form-item prop="credit_code" label="信用代码">
               <el-input v-model="form.credit_code" placeholder="统一社会信用代码" clearable />
             </el-form-item>
-            <el-form-item>
-              <el-input v-model="form.contact_person" placeholder="联系人" clearable />
+            <el-form-item prop="contact_person" label="联系人">
+              <el-input v-model="form.contact_person" placeholder="联系人姓名 (HR真实姓名)" clearable />
+              <div class="field-hint">请填写企业 HR 或负责人的真实姓名</div>
             </el-form-item>
           </template>
 
@@ -696,6 +725,13 @@ const handleRegister = async () => {
   padding-top: 4px;
 }
 .mt-2 { margin-top: 4px; }
+
+.field-hint {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+  line-height: 1.4;
+}
 
 .form-wrapper :deep(.el-input__wrapper) {
   border-radius: 10px;

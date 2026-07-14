@@ -23,6 +23,6 @@ export const resumeApi = {
   getFile: (id: number) => request.get(`/resumes/${id}/file`),
   /** 删除简历 */
   remove: (id: number) => request.delete(`/resumes/${id}`),
-  /** AI 分析简历缺失项 */
+  /** 灵犀分析简历缺失项 */
   gapAnalysis: (id: number) => request.post(`/resumes/${id}/gap-analysis`, {}, { timeout: 600000 }),
 }

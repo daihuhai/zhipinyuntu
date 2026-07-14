@@ -2,7 +2,7 @@
 智能匹配服务 (M4)
 - 召回: Embedding 余弦相似度 Top-N
 - 粗排: 多维度规则加权评分 (技能/经验/学历/城市/薪资/项目)
-- 精排: 豆包大模型 RERANK 重排 + 生成自然语言依据
+- 精排: 灵犀大模型 RERANK 重排 + 生成自然语言依据
 - 匹配记录写入 match_record 表 + 同步知识图谱 MATCHED 边
 
 性能优化 (2026-07-07):
@@ -35,7 +35,7 @@ EDU_WEIGHT = {"博士": 5, "硕士": 4, "本科": 3, "大专": 2, "专科": 2, "
 # 技能等级权重
 LEVEL_WEIGHT = {"精通": 1.0, "熟练": 0.8, "掌握": 0.6, "熟悉": 0.5, "了解": 0.4}
 
-# 精排并发数 (豆包 LLM)
+# 精排并发数 (灵犀大模型)
 RERANK_MAX_WORKERS = 8
 # 精排候选数 (调用 LLM 的数量, 配合 ARK 并发限流与模型延迟)
 RERANK_TOP_N = 3
@@ -46,6 +46,22 @@ class MatchService:
 
     # embedding 可用性标记 (失败后缓存, 避免重复重试浪费时间)
     _embedding_disabled: bool = False
+
+    def __init__(self):
+        self._rerank_tokens: dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+    def _add_usage(self, usage: dict[str, int]):
+        """累积 token 消耗"""
+        for k in self._rerank_tokens:
+            self._rerank_tokens[k] += usage.get(k, 0)
+
+    def _reset_usage(self):
+        """重置 token 累积器"""
+        self._rerank_tokens = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+    def get_rerank_usage(self) -> dict[str, int]:
+        """获取当前累积的 token 消耗"""
+        return dict(self._rerank_tokens)
 
     # ============ 1. 召回阶段 (Embedding 余弦相似度) ============
     def recall_by_embedding(
@@ -236,7 +252,7 @@ class MatchService:
         except Exception:
             return 0.5
 
-    # ============ 3. 精排阶段 (豆包大模型重排, 批量优化) ============
+    # ============ 3. 精排阶段 (灵犀大模型重排, 批量优化) ============
     def _rerank_with_cache(
         self,
         resume: Resume,
@@ -245,13 +261,17 @@ class MatchService:
         db: Session,
         top_k: int = 10,
     ) -> list[dict[str, Any]]:
-        """精排 (带缓存): 先查 match_record 近期记录, 命中则复用, 未命中才调 LLM"""
+        """精排 (带缓存): 先查 match_record 近期记录, 命中则复用, 未命中才调 LLM
+        策略: 仅对 Top RERANK_TOP_N 调 LLM 精排 (保速度), 其余用粗排分数填充 (保数量)
+        """
         if not candidates:
             return []
 
-        # 取 Top N 候选
-        top_candidates = candidates[:RERANK_TOP_N]
-        job_ids = [job.id for job, _ in top_candidates]
+        # 取 Top N 候选进行精排 (RERANK_TOP_N=3, 控制 LLM 调用量)
+        rerank_candidates = candidates[:RERANK_TOP_N]
+        # 保留 Top K 候选 (top_k=10, 保证返回数量)
+        display_candidates = candidates[:top_k]
+        rerank_job_ids = {job.id for job, _ in rerank_candidates}
 
         # 查询近期缓存 (2 小时内的匹配记录)
         # 注意: GreatSQL/MySQL func.now() 返回 UTC 时间, 故用 utcnow() 对齐
@@ -260,7 +280,7 @@ class MatchService:
         cached = db.execute(
             select(MatchRecord).where(
                 MatchRecord.resume_id == resume_id,
-                MatchRecord.job_id.in_(job_ids),
+                MatchRecord.job_id.in_(list(rerank_job_ids)),
                 MatchRecord.direction == "RESUME_TO_JOB",
                 MatchRecord.created_at >= cache_threshold,
             ).order_by(MatchRecord.created_at.desc())
@@ -271,9 +291,10 @@ class MatchService:
             if rec.job_id not in cache_map:
                 cache_map[rec.job_id] = rec
 
+        # 精排结果 (仅 Top RERANK_TOP_N)
         cached_results: list[dict[str, Any]] = []
         uncached: list[tuple[Job, dict]] = []
-        for job, dims in top_candidates:
+        for job, dims in rerank_candidates:
             rec = cache_map.get(job.id)
             if rec:
                 cached_results.append({
@@ -285,21 +306,45 @@ class MatchService:
                     "city_score": rec.city_score or 0,
                     "salary_score": rec.salary_score or 0,
                     "proj_score": rec.proj_score or 0,
-                    "match_reason": rec.match_reason or "AI 精排缓存",
+                    "match_reason": rec.match_reason or "灵犀精排缓存",
                 })
             else:
                 uncached.append((job, dims))
 
         if cached_results:
-            logger.info(f"精排缓存命中 {len(cached_results)}/{len(top_candidates)}, 调 LLM {len(uncached)} 个")
+            logger.info(f"精排缓存命中 {len(cached_results)}/{len(rerank_candidates)}, 调 LLM {len(uncached)} 个")
 
         # 未命中的调 LLM 精排
         if uncached:
-            llm_results = self.fine_rerank(resume, uncached, top_k=top_k)
+            llm_results = self.fine_rerank(resume, uncached, top_k=len(uncached))
             cached_results.extend(llm_results)
 
-        cached_results.sort(key=lambda x: x["total_score"], reverse=True)
-        return cached_results[:top_k]
+        # 构建精排结果索引 (仅 Top RERANK_TOP_N 有精排分数)
+        rerank_result_map: dict[int, dict[str, Any]] = {}
+        for item in cached_results:
+            rerank_result_map[item["job"].id] = item
+
+        # 组装最终结果: 精排候选用精排分数, 其余用粗排分数填充
+        final_results: list[dict[str, Any]] = []
+        for job, dims in display_candidates:
+            if job.id in rerank_result_map:
+                final_results.append(rerank_result_map[job.id])
+            else:
+                # 粗排候选: 使用粗排分数, 标记为规则匹配
+                final_results.append({
+                    "job": job,
+                    "total_score": round(dims["total"], 2),
+                    "skill_score": dims["skill"],
+                    "exp_score": dims["experience"],
+                    "edu_score": dims["education"],
+                    "city_score": dims["city"],
+                    "salary_score": dims["salary"],
+                    "proj_score": dims["project"],
+                    "match_reason": "规则匹配 (粗排)",
+                })
+
+        final_results.sort(key=lambda x: x["total_score"], reverse=True)
+        return final_results[:top_k]
 
     def fine_rerank(
         self,
@@ -311,7 +356,7 @@ class MatchService:
         if not candidates:
             return []
 
-        # 仅对 Top6 调用大模型
+        # 仅对 Top6 调用灵犀大模型
         top_candidates = candidates[:RERANK_TOP_N]
         resume_brief = self._resume_brief(resume)
         resume_json = json.dumps(resume_brief, ensure_ascii=False)
@@ -325,7 +370,8 @@ class MatchService:
                 jobs_json=json.dumps(jobs_brief, ensure_ascii=False),
             )
             # max_tokens=1024: 6 个候选各 1 句 reason, 约 600 token
-            arr = ark_client.chat_json_array(messages, temperature=0.1, max_tokens=1024)
+            arr, usage = ark_client.chat_json_array(messages, temperature=0.1, max_tokens=1024)
+            self._add_usage(usage)
             for item in arr:
                 idx = int(item.get("idx", -1))
                 if 0 <= idx < len(top_candidates):
@@ -344,7 +390,7 @@ class MatchService:
         # 组装结果 (粗排 0.7 + LLM 0.3)
         results: list[dict[str, Any]] = []
         for idx, (job, dims) in enumerate(top_candidates):
-            llm_score, reason = llm_scores.get(idx, (dims["total"], "AI 精排不可用, 使用规则评分"))
+            llm_score, reason = llm_scores.get(idx, (dims["total"], "灵犀精排不可用, 使用规则评分"))
             final = dims["total"] * 0.7 + llm_score * 0.3
             results.append({
                 "job": job,
@@ -376,11 +422,12 @@ class MatchService:
                     resume_json=resume_json,
                     job_json=json.dumps(job_brief, ensure_ascii=False),
                 )
-                llm_result = ark_client.chat_json(messages, temperature=0.1, max_tokens=256)
+                llm_result, usage = ark_client.chat_json(messages, temperature=0.1, max_tokens=256)
+                self._add_usage(usage)
                 return idx, float(llm_result.get("score", dims["total"])), llm_result.get("reason", "")
             except Exception as e:
                 logger.warning(f"单次精排失败 job_id={job.id}: {e}, 使用粗排分数")
-                return idx, dims["total"], "AI 精排不可用, 使用规则评分"
+                return idx, dims["total"], "灵犀精排不可用, 使用规则评分"
 
         out: dict[int, tuple[float, str]] = {}
         with ThreadPoolExecutor(max_workers=min(RERANK_MAX_WORKERS, len(idx_list))) as ex:
@@ -393,7 +440,7 @@ class MatchService:
                     idx = futures[f]
                     dims = top_candidates[idx][1]
                     logger.warning(f"单次精排超时 idx={idx}: {e}")
-                    out[idx] = (dims["total"], "AI 精排超时, 使用规则评分")
+                    out[idx] = (dims["total"], "灵犀精排超时, 使用规则评分")
         return out
 
     def _resume_brief(self, resume: Resume) -> dict:
@@ -426,6 +473,7 @@ class MatchService:
         self, resume_id: int, db: Session, top_k: int = 10
     ) -> list[dict[str, Any]]:
         """为求职者推荐职位 (召回→粗排→精排)"""
+        self._reset_usage()
         # selectinload 预加载 skills/requirements, 消除 N+1
         resume = db.execute(
             select(Resume)
@@ -485,6 +533,7 @@ class MatchService:
         self, user_id: int, db: Session, top_k: int = 10
     ) -> list[dict[str, Any]]:
         """冷启动推荐: 无简历时按求职者意向城市+职位类别推荐热门职位"""
+        self._reset_usage()
         from app.models.user import SysUser
         from sqlalchemy import func
 
@@ -535,6 +584,7 @@ class MatchService:
         self, job_id: int, db: Session, top_k: int = 10
     ) -> list[dict[str, Any]]:
         """为企业推荐候选人 (优先从已投递者中选取; 无投递时全量搜索, 召回→粗排→精排, 带缓存)"""
+        self._reset_usage()
         job = db.execute(
             select(Job)
             .options(selectinload(Job.requirements))
@@ -668,7 +718,7 @@ class MatchService:
                     "city_score": rec.city_score or 0,
                     "salary_score": rec.salary_score or 0,
                     "proj_score": rec.proj_score or 0,
-                    "match_reason": rec.match_reason or "AI 精排缓存",
+                    "match_reason": rec.match_reason or "灵犀精排缓存",
                 })
             else:
                 uncached.append((resume, dims))
@@ -700,14 +750,15 @@ class MatchService:
                     resume_json=json.dumps(self._resume_brief(resume), ensure_ascii=False),
                     job_json=job_json,
                 )
-                llm_result = ark_client.chat_json(messages, temperature=0.1)
+                llm_result, usage = ark_client.chat_json(messages, temperature=0.1)
+                self._add_usage(usage)
                 llm_score = float(llm_result.get("score", dims["total"]))
                 reason = llm_result.get("reason", "")
                 final = dims["total"] * 0.7 + llm_score * 0.3
             except Exception as e:
                 logger.warning(f"精排失败 resume_id={resume.id}: {e}")
                 final = dims["total"]
-                reason = "AI 精排不可用, 使用规则评分"
+                reason = "灵犀精排不可用, 使用规则评分"
             return {
                 "resume": resume,
                 "total_score": round(final, 2),
@@ -740,7 +791,7 @@ class MatchService:
                         "city_score": dims["city"],
                         "salary_score": dims["salary"],
                         "proj_score": dims["project"],
-                        "match_reason": "AI 精排超时, 使用规则评分",
+                        "match_reason": "灵犀精排超时, 使用规则评分",
                     })
         results.sort(key=lambda x: x["total_score"], reverse=True)
         return results

@@ -40,8 +40,8 @@ class ArkClient:
         model: str | None = None,
         temperature: float = 0.1,
         max_tokens: int = 4096,
-    ) -> str:
-        """对话补全, 返回文本内容"""
+    ) -> tuple[str, dict[str, int]]:
+        """对话补全, 返回 (文本内容, usage: {prompt_tokens, completion_tokens, total_tokens})"""
         try:
             resp = self.client.chat.completions.create(
                 model=model or settings.ARK_CHAT_MODEL,
@@ -50,8 +50,13 @@ class ArkClient:
                 max_tokens=max_tokens,
             )
             content = resp.choices[0].message.content or ""
-            logger.debug(f"ARK chat 调用成功, 返回 {len(content)} 字符")
-            return content
+            usage = {
+                "prompt_tokens": resp.usage.prompt_tokens if resp.usage else 0,
+                "completion_tokens": resp.usage.completion_tokens if resp.usage else 0,
+                "total_tokens": resp.usage.total_tokens if resp.usage else 0,
+            }
+            logger.debug(f"ARK chat 调用成功, 返回 {len(content)} 字符, tokens={usage}")
+            return content, usage
         except Exception as e:
             logger.error(f"ARK chat 调用失败: {e}")
             raise
@@ -62,10 +67,10 @@ class ArkClient:
         model: str | None = None,
         temperature: float = 0.1,
         max_tokens: int = 4096,
-    ) -> dict[str, Any]:
-        """对话补全并解析为 JSON (带容错处理)"""
-        raw = self.chat(messages, model=model, temperature=temperature, max_tokens=max_tokens)
-        return _safe_parse_json(raw)
+    ) -> tuple[dict[str, Any], dict[str, int]]:
+        """对话补全并解析为 JSON, 返回 (dict, usage)"""
+        raw, usage = self.chat(messages, model=model, temperature=temperature, max_tokens=max_tokens)
+        return _safe_parse_json(raw), usage
 
     def chat_json_array(
         self,
@@ -73,10 +78,10 @@ class ArkClient:
         model: str | None = None,
         temperature: float = 0.1,
         max_tokens: int = 4096,
-    ) -> list[dict[str, Any]]:
-        """对话补全并解析为 JSON 数组 (带容错处理)"""
-        raw = self.chat(messages, model=model, temperature=temperature, max_tokens=max_tokens)
-        return _safe_parse_json_array(raw)
+    ) -> tuple[list[dict[str, Any]], dict[str, int]]:
+        """对话补全并解析为 JSON 数组, 返回 (list, usage)"""
+        raw, usage = self.chat(messages, model=model, temperature=temperature, max_tokens=max_tokens)
+        return _safe_parse_json_array(raw), usage
 
     def embed(self, texts: list[str] | str, model: str | None = None) -> list[list[float]]:
         """文本向量化, 返回向量列表

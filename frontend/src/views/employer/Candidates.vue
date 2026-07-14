@@ -1,5 +1,5 @@
 <!--
-  候选人推荐 (企业) - 基于 AI 匹配引擎, 仅从已投递该职位的求职者中选取
+  候选人推荐 (企业) - 基于灵犀匹配引擎, 仅从已投递该职位的求职者中选取
 -->
 <template>
   <div class="candidates-page">
@@ -15,26 +15,26 @@
     </el-card>
 
     <div class="rec-list">
-      <!-- AI 匹配中动画 -->
+      <!-- 灵犀匹配中动画 -->
       <div v-if="loading" class="matching-animation">
         <div class="match-pulse">
           <div class="pulse-ring"></div>
           <div class="pulse-ring delay"></div>
           <el-icon :size="36" color="#1677ff"><MagicStick /></el-icon>
         </div>
-        <div class="match-title">AI 智能评估中</div>
+        <div class="match-title">灵犀智能评估中</div>
         <div class="match-sub">召回→粗排→精排, 正在为企业挑选最佳候选人</div>
         <div class="match-steps">
           <div class="step-dot"><span class="dot active"></span><span>召回候选简历</span></div>
           <div class="step-line active"></div>
           <div class="step-dot"><span class="dot active"></span><span>多维特征粗排</span></div>
           <div class="step-line active"></div>
-          <div class="step-dot"><span class="dot rotating"></span><span>大模型精排</span></div>
+          <div class="step-dot"><span class="dot rotating"></span><span>灵犀大模型精排</span></div>
         </div>
         <div class="match-bar-wrap">
           <div class="match-bar"></div>
         </div>
-        <div class="match-hint">正在调用豆包大模型进行深度评估, 约 10-30 秒</div>
+        <div class="match-hint">正在调用灵犀大模型进行深度评估, 约 10-30 秒</div>
       </div>
 
       <template v-else>
@@ -50,8 +50,8 @@
             </div>
             <div class="rec-score">
               <div class="score-header">
-                <span class="score-title">AI 综合匹配度</span>
-                <el-tooltip content="基于六维度加权计算: 技能(40%) + 经验(20%) + 学历(15%) + 城市(10%) + 薪资(10%) + 项目(5%), 由豆包大模型精排得出" placement="top">
+                <span class="score-title">灵犀综合匹配度</span>
+                <el-tooltip content="基于六维度加权计算: 技能(40%) + 经验(20%) + 学历(15%) + 城市(10%) + 薪资(10%) + 项目(5%), 由灵犀大模型精排得出" placement="top">
                   <el-icon class="score-info-icon"><InfoFilled /></el-icon>
                 </el-tooltip>
               </div>
@@ -72,7 +72,7 @@
           </div>
           <div class="rec-reason">
             <el-icon><ChatLineRound /></el-icon>
-            <span>{{ item.match_reason || 'AI 评估中...' }}</span>
+            <span>{{ item.match_reason || '灵犀评估中...' }}</span>
           </div>
           <div class="rec-actions">
             <el-button size="small" type="primary" :icon="View" plain @click="showResumeDetail(item.resume)">查看简历</el-button>
@@ -344,7 +344,7 @@ onMounted(fetchJobs)
 .hint-tag { margin-left: 8px; }
 .rec-list { display: flex; flex-direction: column; gap: 12px; }
 
-/* ===== AI 匹配动画 ===== */
+/* ===== 灵犀匹配动画 ===== */
 .matching-animation {
   display: flex; flex-direction: column; align-items: center;
   padding: 60px 20px; background: #fff; border-radius: 10px;

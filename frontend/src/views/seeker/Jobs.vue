@@ -15,16 +15,17 @@
           @keyup.enter="handleSearch"
           @clear="handleSearch"
         />
+        <el-select v-model="filters.city" placeholder="城市" clearable style="width: 130px" @change="handleSearch">
+          <el-option v-for="c in cityOptions" :key="c" :label="c" :value="c" />
+        </el-select>
         <el-button type="primary" :icon="Search" @click="handleSearch">搜索</el-button>
+        <el-button @click="resetFilters">重置</el-button>
         <el-button text :icon="filterOpen ? ArrowUp : ArrowDown" @click="filterOpen = !filterOpen">
           {{ filterOpen ? '收起筛选' : '展开筛选' }}
         </el-button>
       </div>
       <transition name="el-zoom-in-top">
         <div v-show="filterOpen" class="filter-row" style="margin-top: 12px">
-          <el-select v-model="filters.city" placeholder="城市" clearable style="width: 130px" @change="handleSearch">
-            <el-option v-for="c in cityOptions" :key="c" :label="c" :value="c" />
-          </el-select>
           <el-select v-model="filters.job_type" placeholder="工作性质" clearable style="width: 120px" @change="handleSearch">
             <el-option label="全职" value="全职" />
             <el-option label="兼职" value="兼职" />
@@ -47,7 +48,6 @@
             <el-option label="30-50K" value="30-50" />
             <el-option label="50K 以上" value="50-999" />
           </el-select>
-          <el-button text type="info" :icon="RefreshLeft" @click="resetFilters">重置</el-button>
         </div>
       </transition>
     </el-card>
@@ -96,7 +96,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Search, ArrowDown, ArrowUp, RefreshLeft } from '@element-plus/icons-vue'
+import { Search, ArrowDown, ArrowUp } from '@element-plus/icons-vue'
 import { jobApi } from '@/api/job'
 import { formatSalary } from '@/utils/format'
 import SkeletonList from '@/components/SkeletonList.vue'

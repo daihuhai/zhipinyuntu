@@ -49,13 +49,20 @@ request.interceptors.response.use(
     const res = response.data
     // 后端统一响应格式: { code, message, data, trace_id }
     if (res.code !== undefined && res.code !== 0) {
-      ElMessage.error(res.message || '请求失败')
+      // 1008=配额不足 (VIP权限), 由调用方自行处理弹窗, 跳过通用错误提示
+      if (res.code !== 1008) {
+        ElMessage.error(res.message || '请求失败')
+      }
       // 1002=未认证, 跳转登录
       if (res.code === 1002) {
         localStorage.removeItem('access_token')
         window.location.href = '/login'
       }
-      return Promise.reject(new Error(res.message || 'Error'))
+      // 附加 code 与 data 到错误对象, 便于调用方判断 (如 1008 配额信息)
+      const err = new Error(res.message || 'Error') as Error & { code: number; data: any }
+      err.code = res.code
+      err.data = res.data
+      return Promise.reject(err)
     }
     return res
   },

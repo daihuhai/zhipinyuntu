@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { reactive, ref, onMounted } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { User, Lock } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
@@ -8,12 +8,21 @@ import { authApi, healthApi } from '@/api/auth'
 import ForgotPasswordDialog from '@/components/ForgotPasswordDialog.vue'
 
 const router = useRouter()
+const route = useRoute()
 const userStore = useUserStore()
 
 const formRef = ref<FormInstance>()
 const loading = ref(false)
 const forgotDialogRef = ref<InstanceType<typeof ForgotPasswordDialog>>()
 const healthStatus = ref<string>('')
+
+// 注册后自动填充用户名
+onMounted(() => {
+  const uname = route.query.username as string
+  if (uname) {
+    form.account = uname
+  }
+})
 
 const form = reactive({
   account: '',
@@ -119,7 +128,7 @@ const checkHealth = async () => {
           </div>
           <h1 class="brand-title">智聘云图</h1>
         </div>
-        <p class="brand-slogan">AI 驱动的智能招聘平台</p>
+        <p class="brand-slogan">灵犀驱动的智能招聘平台</p>
         <div class="brand-features">
           <div class="feature-item">
             <span class="feature-check">✓</span>

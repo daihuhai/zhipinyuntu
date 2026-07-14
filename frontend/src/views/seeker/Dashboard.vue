@@ -9,7 +9,7 @@
       <div class="hero">
         <div class="hero-text">
           <h2>你好,{{ userInfo?.nickname || userInfo?.username || '求职者' }} 👋</h2>
-          <p>欢迎回到智聘云图,让 AI 帮你看清每一段经历的价值。</p>
+          <p>欢迎回到智聘云图,让灵犀帮你看清每一段经历的价值。</p>
           <div class="hero-actions">
             <el-button type="primary" :icon="Upload" @click="$router.push('/seeker/resume/upload')">
               上传新简历

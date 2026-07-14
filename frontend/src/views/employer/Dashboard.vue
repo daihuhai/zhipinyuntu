@@ -10,7 +10,7 @@
       <div class="hero">
         <div class="hero-text">
           <h2>{{ companyName }} 的人才中台</h2>
-          <p>用 AI 解析每份简历,把对的人推到对的位置。</p>
+          <p>用灵犀解析每份简历,把对的人推到对的位置。</p>
           <div class="hero-actions">
             <el-button type="primary" :icon="EditPen" @click="$router.push('/employer/job/create')">
               发布新职位

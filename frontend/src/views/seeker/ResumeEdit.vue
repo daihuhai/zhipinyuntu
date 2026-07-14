@@ -1,7 +1,7 @@
 <!--
   简历在线编辑页面
   - 支持编辑基本信息、教育背景、技能
-  - AI 智能分析简历缺失项, 支持一键采纳建议
+  - 灵犀智能分析简历缺失项, 支持一键采纳建议
   - 从简历详情加载数据，保存后更新
 -->
 <template>
@@ -18,14 +18,14 @@
               :loading="analyzing"
               :icon="MagicStick"
             >
-              AI 智能分析
+              灵犀智能分析
             </el-button>
             <el-button @click="$router.back()">返回</el-button>
           </div>
         </div>
       </template>
 
-      <!-- AI 分析结果面板 -->
+      <!-- 灵犀分析结果面板 -->
       <el-collapse-transition>
         <div v-if="gapResult" class="gap-panel">
           <div class="gap-header">
@@ -247,7 +247,7 @@ const loading = ref(false)
 const saving = ref(false)
 const analyzing = ref(false)
 
-// AI 分析结果
+// 灵犀分析结果
 interface GapItem {
   category: string
   title: string
@@ -344,9 +344,9 @@ const fetchDetail = async () => {
       })),
     })
 
-    // 检查是否有从上传页传递过来的 AI 建议
+    // 检查是否有从上传页传递过来的灵犀建议
     await loadAcceptedGaps()
-    // 检查是否有完整的 AI 分析结果 (从上传页跳转过来时展示)
+    // 检查是否有完整的灵犀分析结果 (从上传页跳转过来时展示)
     await loadGapResultFromCache()
   } catch (e: any) {
     ElMessage.error(e?.message || '加载简历详情失败')
@@ -395,7 +395,7 @@ const loadAcceptedGaps = async () => {
     }
 
     if (appliedCount > 0) {
-      ElMessage.success(`已自动应用 ${appliedCount} 条 AI 建议, 请确认后保存`)
+      ElMessage.success(`已自动应用 ${appliedCount} 条灵犀建议, 请确认后保存`)
     }
     // 清除缓存, 避免重复应用
     sessionStorage.removeItem('resume_accepted_gaps')
@@ -404,7 +404,7 @@ const loadAcceptedGaps = async () => {
   }
 }
 
-// 从 sessionStorage 加载完整的 AI 分析结果 (从上传页跳转过来时展示)
+// 从 sessionStorage 加载完整的灵犀分析结果 (从上传页跳转过来时展示)
 const loadGapResultFromCache = async () => {
   try {
     const cached = sessionStorage.getItem('resume_upload_gap_result')
@@ -435,7 +435,7 @@ const handleSubmit = async () => {
   })
 }
 
-// ===== AI 智能分析 =====
+// ===== 灵犀智能分析 =====
 const runGapAnalysis = async () => {
   analyzing.value = true
   gapResult.value = null
@@ -444,12 +444,12 @@ const runGapAnalysis = async () => {
     const data = res.data || {}
     if (data.gaps && data.gaps.length > 0) {
       gapResult.value = data
-      ElMessage.success(`AI 分析完成, 发现 ${data.gaps.length} 条改进建议`)
+      ElMessage.success(`灵犀分析完成, 发现 ${data.gaps.length} 条改进建议`)
     } else {
-      ElMessage.success('AI 分析完成, 您的简历已经很完善了!')
+      ElMessage.success('灵犀分析完成, 您的简历已经很完善了!')
     }
   } catch (e: any) {
-    ElMessage.error(e?.message || 'AI 分析失败, 请稍后重试')
+    ElMessage.error(e?.message || '灵犀分析失败, 请稍后重试')
   } finally {
     analyzing.value = false
   }
@@ -540,7 +540,7 @@ onMounted(fetchDetail)
   border-radius: 8px;
 }
 
-/* ===== AI 分析面板 ===== */
+/* ===== 灵犀分析面板 ===== */
 .gap-panel {
   margin-bottom: 20px;
   border: 1px solid #e8e8e8;

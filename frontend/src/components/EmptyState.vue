@@ -31,7 +31,7 @@ defineEmits<{
 }>()
 
 const defaultConfig = {
-  resume: { desc: '还没有简历, 上传一份让 AI 帮你解析', action: '去上传简历', icon: Upload },
+  resume: { desc: '还没有简历, 上传一份让灵犀帮你解析', action: '去上传简历', icon: Upload },
   job: { desc: '还没有发布职位, 快来招募人才', action: '去发布职位', icon: Plus },
   application: { desc: '暂无投递记录', action: '去看看职位', icon: Search },
   search: { desc: '暂无符合条件的结果, 试试调整筛选', action: '', icon: Search },

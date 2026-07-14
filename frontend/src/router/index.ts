@@ -20,6 +20,13 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/auth/Register.vue'),
     meta: { title: '注册', public: true },
   },
+  // 意见反馈 (所有登录用户可访问)
+  {
+    path: '/feedback',
+    name: 'Feedback',
+    component: () => import('@/views/common/Feedback.vue'),
+    meta: { title: '意见反馈', roles: ['ROLE_SEEKER', 'ROLE_EMPLOYER'] },
+  },
   // 个人用户工作台
   {
     path: '/seeker',
@@ -98,6 +105,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/seeker/Profile.vue'),
         meta: { title: '个人设置', role: 'ROLE_SEEKER' },
       },
+      {
+        path: 'vip',
+        name: 'SeekerVipCenter',
+        component: () => import('@/views/common/VipCenter.vue'),
+        meta: { title: 'VIP 中心', role: 'ROLE_SEEKER' },
+      },
     ],
   },
   // 企业用户工作台
@@ -148,6 +161,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/employer/Profile.vue'),
         meta: { title: '企业设置', role: 'ROLE_EMPLOYER' },
       },
+      {
+        path: 'vip',
+        name: 'EmployerVipCenter',
+        component: () => import('@/views/common/VipCenter.vue'),
+        meta: { title: 'VIP 中心', role: 'ROLE_EMPLOYER' },
+      },
     ],
   },
   // 管理后台
@@ -185,6 +204,24 @@ const routes: RouteRecordRaw[] = [
         name: 'AdminLogs',
         component: () => import('@/views/admin/Logs.vue'),
         meta: { title: '操作日志', role: 'ROLE_ADMIN' },
+      },
+      {
+        path: 'vip',
+        name: 'AdminVipManage',
+        component: () => import('@/views/admin/VipManage.vue'),
+        meta: { title: 'VIP 管理', role: 'ROLE_ADMIN' },
+      },
+      {
+        path: 'revenue',
+        name: 'AdminRevenue',
+        component: () => import('@/views/admin/Revenue.vue'),
+        meta: { title: '营收监控', icon: 'Money', requireAuth: true, roles: ['ROLE_ADMIN'] },
+      },
+      {
+        path: 'feedbacks',
+        name: 'AdminFeedbacks',
+        component: () => import('@/views/admin/Feedbacks.vue'),
+        meta: { title: '反馈管理', roles: ['ROLE_ADMIN'] },
       },
     ],
   },

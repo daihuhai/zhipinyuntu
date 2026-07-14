@@ -17,7 +17,7 @@ class JobRequirementOut(BaseModel):
 
 
 class JobCreateRequest(BaseModel):
-    """职位创建请求 (支持手动填写或粘贴 JD 让 AI 解析)"""
+    """职位创建请求 (支持手动填写或粘贴 JD 让灵犀解析)"""
     title: str
     company: Optional[str] = None
     department: Optional[str] = None
@@ -30,7 +30,7 @@ class JobCreateRequest(BaseModel):
     education_required: Optional[str] = None
     headcount: int = 1
     description: Optional[str] = None
-    # 若提供 parse_text, 则用豆包解析 JD 填充以上字段
+    # 若提供 parse_text, 则用灵犀解析 JD 填充以上字段
     parse_text: Optional[str] = None
 
 

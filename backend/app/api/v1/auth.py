@@ -89,7 +89,13 @@ async def me(current_user: SysUser = Depends(get_current_user)):
         "contact_person": current_user.contact_person,
         "real_name": current_user.real_name,
         "gender": current_user.gender,
+        "id_card": current_user.id_card,
+        "birth_date": current_user.birth_date.isoformat() if current_user.birth_date else None,
+        "education": current_user.education,
+        "work_years": current_user.work_years,
         "status": current_user.status,
+        "is_vip": current_user.vip_active,
+        "vip_expire_at": current_user.vip_expire_at.isoformat() if current_user.vip_expire_at else None,
     }
     return success(data=data)
 
@@ -106,6 +112,7 @@ async def update_profile(
         allowed_fields = {
             "nickname", "phone", "email", "avatar_url",
             "company_name", "contact_person", "real_name", "gender",
+            "id_card", "education", "work_years",
         }
         updated = []
         for field in allowed_fields:
@@ -130,6 +137,9 @@ async def update_profile(
             "contact_person": current_user.contact_person,
             "real_name": current_user.real_name,
             "gender": current_user.gender,
+            "id_card": current_user.id_card,
+            "education": current_user.education,
+            "work_years": current_user.work_years,
         }
         return success(data=data, message="个人信息更新成功")
     except Exception as e:

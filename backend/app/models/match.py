@@ -10,7 +10,7 @@ from app.db.base import Base, BigIntPK
 
 
 class MatchRecord(Base):
-    """人岗匹配记录 (含各维度评分 + 豆包生成的匹配依据)"""
+    """人岗匹配记录 (含各维度评分 + 灵犀生成的匹配依据)"""
 
     __tablename__ = "match_record"
 
@@ -27,7 +27,7 @@ class MatchRecord(Base):
     salary_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     semantic_score: Mapped[float | None] = mapped_column(Float, nullable=True)
 
-    match_reason: Mapped[str | None] = mapped_column(Text, nullable=True, comment="豆包模型生成的自然语言依据")
+    match_reason: Mapped[str | None] = mapped_column(Text, nullable=True, comment="灵犀模型生成的自然语言依据")
     direction: Mapped[str | None] = mapped_column(String(16), nullable=True, comment="JOB_TO_RESUME/RESUME_TO_JOB")
 
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

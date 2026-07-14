@@ -12,6 +12,7 @@
         <el-option label="失败" :value="3" />
       </el-select>
       <el-button type="primary" :icon="Search" @click="fetchList">查询</el-button>
+      <el-button @click="handleReset">重置</el-button>
       <el-button :icon="Download" :loading="exporting" @click="handleExport">导出CSV</el-button>
     </el-card>
 
@@ -178,6 +179,13 @@ const fetchList = async () => {
   }
 }
 
+const handleReset = () => {
+  keyword.value = ''
+  parseStatus.value = ''
+  page.value = 1
+  fetchList()
+}
+
 const showDetail = async (row: any) => {
   drawerVisible.value = true
   detailLoading.value = true
@@ -219,17 +227,33 @@ const formatDate = (iso?: string) => iso ? new Date(iso).toLocaleString('zh-CN',
 
 const handleBatchDelete = async () => {
   const ids = selectedRows.value.map(r => r.id)
-  await ElMessageBox.confirm(`确认批量删除选中的 ${ids.length} 条记录?`, '提示', { type: 'warning' })
-  const res: any = await adminApi.batchDeleteResumes(ids)
-  ElMessage.success(`已删除 ${res.data?.deleted ?? ids.length} 条`)
-  fetchList()
+  try {
+    await ElMessageBox.confirm(`确认批量删除选中的 ${ids.length} 条记录?`, '提示', { type: 'warning' })
+  } catch {
+    return
+  }
+  try {
+    const res: any = await adminApi.batchDeleteResumes(ids)
+    ElMessage.success(`已删除 ${res.data?.deleted ?? ids.length} 条`)
+    fetchList()
+  } catch (e: any) {
+    ElMessage.error(e?.message || '删除失败')
+  }
 }
 
 const handleDelete = async (row: any) => {
-  await ElMessageBox.confirm(`确认删除简历 ${row.name || '#' + row.id}?`, '提示', { type: 'warning' })
-  await adminApi.deleteResume(row.id)
-  ElMessage.success('已删除')
-  fetchList()
+  try {
+    await ElMessageBox.confirm(`确认删除简历 ${row.name || '#' + row.id}?`, '提示', { type: 'warning' })
+  } catch {
+    return
+  }
+  try {
+    await adminApi.deleteResume(row.id)
+    ElMessage.success('已删除')
+    fetchList()
+  } catch (e: any) {
+    ElMessage.error(e?.message || '删除失败')
+  }
 }
 
 // 导出简历数据为 CSV

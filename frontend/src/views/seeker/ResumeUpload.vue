@@ -1,8 +1,8 @@
 <!--
   上传简历页面
   - 支持 .doc/.docx/.pdf, 最大 10MB
-  - 上传后调用 AI 解析, 展示结构化结果
-  - 解析完成后自动调用 AI 智能分析, 展示改进建议
+  - 上传后调用灵犀解析, 展示结构化结果
+  - 解析完成后自动调用灵犀智能分析, 展示改进建议
   - 用户可一键采纳建议, 跳转编辑页进行修改
   - 解析结果持久化到 sessionStorage, 切页后回来不丢失
 -->
@@ -40,7 +40,7 @@
           :loading="uploading"
           @click="doUpload"
         >
-          {{ uploading ? 'AI 解析中...' : '开始上传并解析' }}
+          {{ uploading ? '灵犀解析中...' : '开始上传并解析' }}
         </el-button>
       </div>
     </el-card>
@@ -53,7 +53,7 @@
           <div class="pulse-ring delay"></div>
           <el-icon :size="40" color="#1677ff"><MagicStick /></el-icon>
         </div>
-        <div class="parsing-title">AI 正在解析您的简历</div>
+        <div class="parsing-title">灵犀正在解析您的简历</div>
         <div class="parsing-subtitle">{{ currentFile?.name || '简历文档' }}</div>
 
         <!-- 步骤进度 -->
@@ -84,7 +84,7 @@
           color="#1677ff"
           class="parsing-progress"
         />
-        <div class="parsing-hint">预计 10-30 秒 (含 AI 智能分析), 请勿离开页面</div>
+        <div class="parsing-hint">预计 10-30 秒 (含灵犀智能分析), 请勿离开页面</div>
       </div>
     </el-card>
 
@@ -133,13 +133,13 @@
       </div>
     </el-card>
 
-    <!-- AI 智能分析建议 -->
+    <!-- 灵犀智能分析建议 -->
     <el-card v-if="gapResult" shadow="never" class="gap-card">
       <template #header>
         <div class="card-header">
           <div class="gap-title-row">
             <el-icon :size="18" color="#faad14"><MagicStick /></el-icon>
-            <span>AI 智能分析建议</span>
+            <span>灵犀智能分析建议</span>
             <div class="score-badge" :style="scoreBadgeStyle">
               完整度 {{ gapResult.overall_score }}%
             </div>
@@ -184,6 +184,34 @@
         </el-button>
       </div>
     </el-card>
+
+    <!-- VIP 配额提醒弹窗 -->
+    <el-dialog v-model="vipDialogVisible" title="配额提醒" width="420px" :close-on-click-modal="false">
+      <div class="vip-remind">
+        <div class="vip-remind-icon">
+          <el-icon :size="40" color="#faad14"><MagicStick /></el-icon>
+        </div>
+        <div class="vip-remind-title">免费配额已用尽</div>
+        <div class="vip-remind-desc">
+          您的免费解析配额已用完, 开通 VIP 会员可无限次解析, 或购买单次解析继续使用
+        </div>
+        <div v-if="quotaInfo" class="vip-remind-quota">
+          <div class="quota-line">
+            <span>免费配额:</span>
+            <span>{{ quotaInfo.free_quota_used ?? 0 }} / {{ quotaInfo.free_quota_limit ?? 0 }}</span>
+          </div>
+          <div class="quota-line">
+            <span>付费配额:</span>
+            <span class="paid-num">{{ quotaInfo.paid_quota ?? 0 }} 次</span>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="vipDialogVisible = false">稍后再说</el-button>
+        <el-button type="primary" plain @click="goVipSingle">购买单次解析</el-button>
+        <el-button type="warning" @click="goVipRecharge">去充值 VIP</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -207,7 +235,7 @@ const currentStep = ref(0)
 const progressPercent = ref(0)
 const resumeIdRef = ref<number | null>(null)
 
-// AI 分析结果
+// 灵犀分析结果
 interface GapItem {
   category: string
   title: string
@@ -223,12 +251,16 @@ interface GapResult {
 }
 const gapResult = ref<GapResult | null>(null)
 
-// 解析步骤定义 (新增 AI 智能分析步骤)
+// VIP 配额提醒弹窗
+const vipDialogVisible = ref(false)
+const quotaInfo = ref<any>(null)
+
+// 解析步骤定义 (新增灵犀智能分析步骤)
 const parseSteps = [
   { label: '文件上传', desc: '正在上传简历文档' },
   { label: '文本提取', desc: '从文档中提取文字内容' },
-  { label: 'AI 结构化', desc: '豆包大模型识别字段与技能' },
-  { label: 'AI 智能分析', desc: '分析简历缺失项并给出建议' },
+  { label: '灵犀结构化', desc: '灵犀大模型识别字段与技能' },
+  { label: '灵犀智能分析', desc: '分析简历缺失项并给出建议' },
   { label: '完成', desc: '生成解析结果与改进建议' },
 ]
 
@@ -295,7 +327,7 @@ const doUpload = async () => {
   startProgressAnimation()
   try {
     const res: any = await resumeApi.upload(currentFile.value)
-    // 进入 AI 结构化阶段
+    // 进入灵犀结构化阶段
     currentStep.value = 2
     progressPercent.value = Math.max(progressPercent.value, 50)
     // 拉取详情展示 (拦截器返回 {code, message, data}, 取 data 字段)
@@ -317,19 +349,23 @@ const doUpload = async () => {
       // 存储满或禁用时静默
     }
     stopProgressAnimation(true)
-    ElMessage.success('简历解析成功, 正在进行 AI 智能分析...')
+    ElMessage.success('简历解析成功, 正在进行灵犀智能分析...')
 
-    // 自动调用 AI 智能分析
+    // 自动调用灵犀智能分析
     await runGapAnalysis(resumeId)
-  } catch (e) {
+  } catch (e: any) {
     stopProgressAnimation(false)
-    // 已由 axios 拦截器提示
+    // 1008 = 配额不足, 弹出 VIP 升级提醒
+    if (e?.code === 1008) {
+      quotaInfo.value = e.data?.quota_info || null
+      vipDialogVisible.value = true
+    }
   } finally {
     uploading.value = false
   }
 }
 
-// AI 智能分析
+// 灵犀智能分析
 const runGapAnalysis = async (resumeId: number) => {
   try {
     const res: any = await resumeApi.gapAnalysis(resumeId)
@@ -342,12 +378,12 @@ const runGapAnalysis = async (resumeId: number) => {
       } catch (e) {
         // 静默
       }
-      ElMessage.success(`AI 分析完成, 发现 ${data.gaps.length} 条改进建议`)
+      ElMessage.success(`灵犀分析完成, 发现 ${data.gaps.length} 条改进建议`)
     } else {
-      ElMessage.success('AI 分析完成, 您的简历已经很完善了!')
+      ElMessage.success('灵犀分析完成, 您的简历已经很完善了!')
     }
   } catch (e: any) {
-    ElMessage.warning('AI 智能分析失败, 您可以稍后在编辑页面重试')
+    ElMessage.warning('灵犀智能分析失败, 您可以稍后在编辑页面重试')
   }
 }
 
@@ -380,6 +416,16 @@ const goEdit = () => {
   }
 }
 
+// 跳转 VIP 充值 / 单次购买
+const goVipRecharge = () => {
+  vipDialogVisible.value = false
+  router.push('/seeker/vip')
+}
+const goVipSingle = () => {
+  vipDialogVisible.value = false
+  router.push('/seeker/vip')
+}
+
 // 重新解析: 清除缓存与结果
 const resetResult = () => {
   parseResult.value = null
@@ -401,7 +447,7 @@ const levelTagType = (level?: string) => {
   return 'info'
 }
 
-// ===== AI 建议相关 =====
+// ===== 灵犀建议相关 =====
 const priorityLabel = (p: string) => {
   const map: Record<string, string> = { high: '重要', medium: '建议', low: '可选' }
   return map[p] || p
@@ -524,7 +570,7 @@ onMounted(() => {
 .skills-block h4 { margin-bottom: 12px; color: var(--text-primary); }
 .skill-tags { display: flex; flex-wrap: wrap; gap: 8px; }
 
-/* ===== AI 分析建议卡片 ===== */
+/* ===== 灵犀分析建议卡片 ===== */
 .gap-card { border-radius: 12px; }
 .gap-title-row {
   display: flex; align-items: center; gap: 8px;
@@ -568,4 +614,16 @@ onMounted(() => {
   margin-top: 16px; padding-top: 16px; border-top: 1px solid #f0f0f0;
   display: flex; justify-content: center;
 }
+
+/* ===== VIP 提醒弹窗 ===== */
+.vip-remind { text-align: center; padding: 8px 0; }
+.vip-remind-icon { margin-bottom: 12px; }
+.vip-remind-title { font-size: 18px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px; }
+.vip-remind-desc { font-size: 14px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 16px; }
+.vip-remind-quota {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px 16px; background: #fffbe6; border-radius: 8px;
+}
+.quota-line { display: flex; justify-content: space-between; font-size: 13px; color: var(--text-secondary); }
+.paid-num { color: #faad14; font-weight: 600; }
 </style>

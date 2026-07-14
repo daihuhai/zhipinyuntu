@@ -1,6 +1,6 @@
 """
 职位业务服务
-- 创建 (支持豆包解析 JD)
+- 创建 (支持灵犀解析 JD)
 - 列表 / 详情 / 删除
 - 公开职位广场 (分页)
 """
@@ -21,7 +21,7 @@ from app.services.graph_service import graph_service
 class JobService:
     """职位业务"""
 
-    # 技能等级规范化 (兜底大模型返回的长描述)
+    # 技能等级规范化 (兜底灵犀大模型返回的长描述)
     _LEVEL_KEYWORDS = [("精通", "精通"), ("熟练", "熟练"), ("掌握", "掌握"), ("了解", "了解")]
     _VALID_LEVELS = {"精通", "熟练", "掌握", "了解"}
 
@@ -39,12 +39,13 @@ class JobService:
         return "掌握"
 
     def create(self, data: dict[str, Any], user_id: int, db: Session) -> Job:
-        """创建职位 (若提供 parse_text 则用豆包解析 JD)"""
+        """创建职位 (若提供 parse_text 则用灵犀解析 JD)"""
         parse_text = data.pop("parse_text", None)
+        parsed = None
 
         if parse_text and parse_text.strip():
-            # 用豆包解析 JD 文本
-            parsed = doc_parser.parse_job(parse_text)
+            # 用灵犀解析 JD 文本
+            parsed, _ = doc_parser.parse_job(parse_text)
             # 用解析结果填充 (用户显式传入的字段优先)
             field_map = [
                 "title", "company", "department", "job_type",

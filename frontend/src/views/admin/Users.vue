@@ -4,7 +4,8 @@
 <template>
   <div class="users-page">
     <el-card shadow="never" class="filter-card">
-      <el-input v-model="keyword" placeholder="搜索用户名/昵称/手机号" clearable :prefix-icon="Search" style="width: 280px" @keyup.enter="fetchList" @clear="fetchList" />
+      <el-input v-model="searchUsername" placeholder="用户名" clearable :prefix-icon="Search" style="width: 180px" @keyup.enter="fetchList" />
+      <el-input v-model="searchPhone" placeholder="手机号" clearable :prefix-icon="Search" style="width: 180px" @keyup.enter="fetchList" />
       <el-select v-model="roleFilter" placeholder="角色" clearable style="width: 140px" @change="fetchList">
         <el-option label="个人用户" value="ROLE_SEEKER" />
         <el-option label="企业用户" value="ROLE_EMPLOYER" />
@@ -15,6 +16,7 @@
         <el-option label="禁用" :value="0" />
       </el-select>
       <el-button type="primary" :icon="Search" @click="fetchList">查询</el-button>
+      <el-button @click="handleReset">重置</el-button>
       <el-button :icon="Download" :loading="exporting" @click="handleExport">导出CSV</el-button>
     </el-card>
 
@@ -122,7 +124,8 @@ import { adminApi } from '@/api/admin'
 const list = ref<any[]>([])
 const loading = ref(false)
 const exporting = ref(false)
-const keyword = ref('')
+const searchUsername = ref('')
+const searchPhone = ref('')
 const roleFilter = ref('')
 const statusFilter = ref<number | ''>('')
 const page = ref(1)
@@ -143,7 +146,8 @@ const fetchList = async () => {
   try {
     const res: any = await adminApi.users({
       page: page.value, size: size.value,
-      keyword: keyword.value,
+      username: searchUsername.value || undefined,
+      phone: searchPhone.value || undefined,
       role: roleFilter.value || undefined,
       status: statusFilter.value === '' ? undefined : statusFilter.value,
     })
@@ -152,6 +156,15 @@ const fetchList = async () => {
   } finally {
     loading.value = false
   }
+}
+
+const handleReset = () => {
+  searchUsername.value = ''
+  searchPhone.value = ''
+  roleFilter.value = ''
+  statusFilter.value = ''
+  page.value = 1
+  fetchList()
 }
 
 const showDetail = async (row: any) => {
@@ -174,33 +187,65 @@ const formatDate = (iso?: string) => iso ? new Date(iso).toLocaleString('zh-CN',
 const handleBatchStatus = async (status: number) => {
   const ids = selectedRows.value.map(r => r.id)
   const action = status === 1 ? '启用' : '禁用'
-  await ElMessageBox.confirm(`确认批量${action}选中的 ${ids.length} 个用户?`, '提示', { type: 'warning' })
-  const res: any = await adminApi.batchUpdateUserStatus(ids, status)
-  ElMessage.success(`已${action} ${res.data?.updated ?? ids.length} 个`)
-  fetchList()
+  try {
+    await ElMessageBox.confirm(`确认批量${action}选中的 ${ids.length} 个用户?`, '提示', { type: 'warning' })
+  } catch {
+    return
+  }
+  try {
+    const res: any = await adminApi.batchUpdateUserStatus(ids, status)
+    ElMessage.success(`已${action} ${res.data?.updated ?? ids.length} 个`)
+    fetchList()
+  } catch (e: any) {
+    ElMessage.error(e?.message || '操作失败')
+  }
 }
 
 const toggleStatus = async (row: any) => {
   const newStatus = row.status === 1 ? 0 : 1
-  await ElMessageBox.confirm(`确认${newStatus === 1 ? '启用' : '禁用'}用户 ${row.username}?`, '提示', { type: 'warning' })
-  await adminApi.updateUserStatus(row.id, newStatus)
-  ElMessage.success('已更新')
-  fetchList()
+  try {
+    await ElMessageBox.confirm(`确认${newStatus === 1 ? '启用' : '禁用'}用户 ${row.username}?`, '提示', { type: 'warning' })
+  } catch {
+    return
+  }
+  try {
+    await adminApi.updateUserStatus(row.id, newStatus)
+    ElMessage.success('已更新')
+    fetchList()
+  } catch (e: any) {
+    ElMessage.error(e?.message || '操作失败')
+  }
 }
 
 const toggleRole = async (row: any) => {
   const newRole = row.role === 'ROLE_SEEKER' ? 'ROLE_EMPLOYER' : 'ROLE_SEEKER'
-  await ElMessageBox.confirm(`确认将 ${row.username} 角色切换为 ${newRole === 'ROLE_SEEKER' ? '个人用户' : '企业用户'}?`, '提示', { type: 'warning' })
-  await adminApi.updateUserRole(row.id, newRole)
-  ElMessage.success('角色已更新')
-  fetchList()
+  try {
+    await ElMessageBox.confirm(`确认将 ${row.username} 角色切换为 ${newRole === 'ROLE_SEEKER' ? '个人用户' : '企业用户'}?`, '提示', { type: 'warning' })
+  } catch {
+    return
+  }
+  try {
+    await adminApi.updateUserRole(row.id, newRole)
+    ElMessage.success('角色已更新')
+    fetchList()
+  } catch (e: any) {
+    ElMessage.error(e?.message || '操作失败')
+  }
 }
 
 const handleDelete = async (row: any) => {
-  await ElMessageBox.confirm(`确认删除用户 ${row.username}? 此操作不可恢复!`, '危险操作', { type: 'error' })
-  await adminApi.deleteUser(row.id)
-  ElMessage.success('已删除')
-  fetchList()
+  try {
+    await ElMessageBox.confirm(`确认删除用户 ${row.username}? 此操作不可恢复!`, '危险操作', { type: 'error' })
+  } catch {
+    return
+  }
+  try {
+    await adminApi.deleteUser(row.id)
+    ElMessage.success('已删除')
+    fetchList()
+  } catch (e: any) {
+    ElMessage.error(e?.message || '删除失败')
+  }
 }
 
 // 导出用户数据为 CSV

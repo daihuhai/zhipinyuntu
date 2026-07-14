@@ -65,7 +65,7 @@
       <div v-else-if="!resumes.length && !resumesLoading" class="error-panel glass">
         <el-icon :size="48" color="#a78bfa"><DataAnalysis /></el-icon>
         <div class="error-title">暂无可用于构建图谱的简历</div>
-        <div class="error-msg">请先上传简历并完成 AI 解析</div>
+        <div class="error-msg">请先上传简历并完成灵犀解析</div>
         <el-button type="primary" @click="$router.push('/seeker/resume/upload')">去上传简历</el-button>
       </div>
 

@@ -28,7 +28,7 @@ async def health_check_detail():
         "api": "ok",
         "database": "skipped",  # M2 接入
         "redis": "skipped",     # M2 接入
-        "neo4j": "skipped",     # M3 接入
+        "nebula": "skipped",    # M3 接入
         "ark_api": "configured" if settings.ARK_API_KEY else "missing",
     }
 
