@@ -20,13 +20,6 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/auth/Register.vue'),
     meta: { title: '注册', public: true },
   },
-  // 意见反馈 (所有登录用户可访问)
-  {
-    path: '/feedback',
-    name: 'Feedback',
-    component: () => import('@/views/common/Feedback.vue'),
-    meta: { title: '意见反馈', roles: ['ROLE_SEEKER', 'ROLE_EMPLOYER'] },
-  },
   // 个人用户工作台
   {
     path: '/seeker',
@@ -111,6 +104,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/common/VipCenter.vue'),
         meta: { title: 'VIP 中心', role: 'ROLE_SEEKER' },
       },
+      {
+        path: 'feedback',
+        name: 'SeekerFeedback',
+        component: () => import('@/views/common/Feedback.vue'),
+        meta: { title: '意见反馈', role: 'ROLE_SEEKER' },
+      },
     ],
   },
   // 企业用户工作台
@@ -166,6 +165,12 @@ const routes: RouteRecordRaw[] = [
         name: 'EmployerVipCenter',
         component: () => import('@/views/common/VipCenter.vue'),
         meta: { title: 'VIP 中心', role: 'ROLE_EMPLOYER' },
+      },
+      {
+        path: 'feedback',
+        name: 'EmployerFeedback',
+        component: () => import('@/views/common/Feedback.vue'),
+        meta: { title: '意见反馈', role: 'ROLE_EMPLOYER' },
       },
     ],
   },

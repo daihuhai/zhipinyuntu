@@ -20,7 +20,7 @@ const menuItems = [
   { index: '/seeker/recommend', icon: 'Position', title: '结果推荐' },
   { index: '/seeker/graph', icon: 'Share', title: '能力图谱' },
   { index: '/seeker/applications', icon: 'Tickets', title: '投递记录' },
-  { index: '/feedback', icon: 'ChatLineSquare', title: '意见反馈' },
+  { index: '/seeker/feedback', icon: 'ChatLineSquare', title: '意见反馈' },
   { index: '/seeker/messages', icon: 'ChatDotRound', title: '消息', badge: true },
   { index: '/seeker/profile', icon: 'Setting', title: '个人设置' },
 ]

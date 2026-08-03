@@ -18,7 +18,7 @@ const menuItems = [
   { index: '/employer/job/list', icon: 'Briefcase', title: '职位列表' },
   { index: '/employer/candidates', icon: 'User', title: '候选人推荐' },
   { index: '/employer/applications', icon: 'Tickets', title: '投递管理' },
-  { index: '/feedback', icon: 'ChatLineSquare', title: '意见反馈' },
+  { index: '/employer/feedback', icon: 'ChatLineSquare', title: '意见反馈' },
   { index: '/employer/messages', icon: 'ChatDotRound', title: '消息', badge: true },
   { index: '/employer/profile', icon: 'Setting', title: '企业设置' },
 ]

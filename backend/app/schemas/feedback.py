@@ -14,3 +14,4 @@ class FeedbackReply(BaseModel):
     """管理员回复"""
     status: str = Field(..., description="处理状态: processing/resolved")
     reply: Optional[str] = Field(None, max_length=2000, description="回复内容")
+    notify: bool = Field(default=False, description="是否发送站内消息通知用户")

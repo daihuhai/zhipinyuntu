@@ -412,7 +412,7 @@ onMounted(fetchQuota)
 .topbar-placeholder { width: 60px; }
 
 .vip-container {
-  max-width: 960px; margin: 0 auto; padding: 24px 20px 80px;
+  max-width: 960px; margin: 0 auto; padding: 12px 20px 80px;
 }
 
 /* ===== 配额状态卡片 ===== */

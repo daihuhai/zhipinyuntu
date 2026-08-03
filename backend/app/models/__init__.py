@@ -12,6 +12,7 @@ from app.models.interview import Interview
 from app.models.license import BusinessLicense
 from app.models.subscription import JobSubscription
 from app.models.payment import PaymentRecord
+from app.models.feedback import Feedback
 
 __all__ = [
     "SysUser",
@@ -27,4 +28,5 @@ __all__ = [
     "BusinessLicense",
     "JobSubscription",
     "PaymentRecord",
+    "Feedback",
 ]
