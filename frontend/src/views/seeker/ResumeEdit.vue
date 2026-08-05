@@ -82,12 +82,12 @@
 
         <el-row :gutter="20">
           <el-col :span="12">
-            <el-form-item label="姓名" prop="name">
+            <el-form-item label="姓名" prop="name" ref="nameRef">
               <el-input v-model="form.name" placeholder="请输入姓名" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="性别" prop="gender">
+            <el-form-item label="性别" prop="gender" ref="genderRef">
               <el-select v-model="form.gender" placeholder="请选择性别" style="width: 100%">
                 <el-option label="男" value="男" />
                 <el-option label="女" value="女" />
@@ -98,12 +98,12 @@
 
         <el-row :gutter="20">
           <el-col :span="12">
-            <el-form-item label="年龄" prop="age">
+            <el-form-item label="年龄" prop="age" ref="ageRef">
               <el-input-number v-model="form.age" :min="16" :max="80" style="width: 100%" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="工作年限" prop="work_years">
+            <el-form-item label="工作年限" prop="work_years" ref="work_yearsRef">
               <el-input-number v-model="form.work_years" :min="0" :max="50" style="width: 100%" />
             </el-form-item>
           </el-col>
@@ -111,12 +111,12 @@
 
         <el-row :gutter="20">
           <el-col :span="12">
-            <el-form-item label="手机号" prop="phone">
+            <el-form-item label="手机号" prop="phone" ref="phoneRef">
               <el-input v-model="form.phone" placeholder="请输入手机号" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="邮箱" prop="email">
+            <el-form-item label="邮箱" prop="email" ref="emailRef">
               <el-input v-model="form.email" placeholder="请输入邮箱" />
             </el-form-item>
           </el-col>
@@ -124,7 +124,7 @@
 
         <el-row :gutter="20">
           <el-col :span="12">
-            <el-form-item label="所在城市" prop="current_city">
+            <el-form-item label="所在城市" prop="current_city" ref="current_cityRef">
               <el-input v-model="form.current_city" placeholder="如：北京" />
             </el-form-item>
           </el-col>
@@ -139,7 +139,7 @@
 
         <el-row :gutter="20">
           <el-col :span="12">
-            <el-form-item label="学历" prop="education">
+            <el-form-item label="学历" prop="education" ref="educationRef">
               <el-select v-model="form.education" placeholder="请选择学历" style="width: 100%">
                 <el-option label="高中" value="高中" />
                 <el-option label="大专" value="大专" />
@@ -150,7 +150,7 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="学校" prop="school">
+            <el-form-item label="学校" prop="school" ref="schoolRef">
               <el-input v-model="form.school" placeholder="请输入学校名称" />
             </el-form-item>
           </el-col>
@@ -158,7 +158,7 @@
 
         <el-row :gutter="20">
           <el-col :span="12">
-            <el-form-item label="专业" prop="major">
+            <el-form-item label="专业" prop="major" ref="majorRef">
               <el-input v-model="form.major" placeholder="请输入专业" />
             </el-form-item>
           </el-col>
@@ -168,12 +168,12 @@
 
         <el-row :gutter="20">
           <el-col :span="12">
-            <el-form-item label="最低薪资 (K)">
+            <el-form-item label="最低薪资 (K)" ref="expected_salary_minRef">
               <el-input-number v-model="form.expected_salary_min" :min="0" style="width: 100%" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="最高薪资 (K)">
+            <el-form-item label="最高薪资 (K)" ref="expected_salary_maxRef">
               <el-input-number v-model="form.expected_salary_max" :min="0" style="width: 100%" />
             </el-form-item>
           </el-col>
@@ -181,7 +181,7 @@
 
         <el-divider content-position="left">自我评价</el-divider>
 
-        <el-form-item prop="self_evaluation">
+        <el-form-item prop="self_evaluation" ref="self_evaluationRef">
           <el-input
             v-model="form.self_evaluation"
             type="textarea"
@@ -194,7 +194,7 @@
 
         <el-divider content-position="left">技能清单</el-divider>
 
-        <div class="skills-section">
+        <div class="skills-section" ref="skillsRef">
           <div v-for="(skill, index) in form.skills" :key="index" class="skill-item">
             <el-row :gutter="10" align="middle">
               <el-col :span="10">
@@ -232,11 +232,12 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref, computed } from 'vue'
+import { onMounted, reactive, ref, computed, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
+import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { Plus, Delete, MagicStick, Close } from '@element-plus/icons-vue'
 import { resumeApi } from '@/api/resume'
+import { useDraft } from '@/composables/useDraft'
 
 const route = useRoute()
 const router = useRouter()
@@ -246,6 +247,22 @@ const formRef = ref<FormInstance>()
 const loading = ref(false)
 const saving = ref(false)
 const analyzing = ref(false)
+
+// 表单字段 ref (用于一键采纳后滚动定位)
+const nameRef = ref()
+const genderRef = ref()
+const ageRef = ref()
+const work_yearsRef = ref()
+const phoneRef = ref()
+const emailRef = ref()
+const current_cityRef = ref()
+const educationRef = ref()
+const schoolRef = ref()
+const majorRef = ref()
+const expected_salary_minRef = ref()
+const expected_salary_maxRef = ref()
+const self_evaluationRef = ref()
+const skillsRef = ref()
 
 // 灵犀分析结果
 interface GapItem {
@@ -280,6 +297,35 @@ const form = reactive({
   self_evaluation: '',
   skills: [] as Array<{ skill_name: string; skill_level: string; weight: number }>,
 })
+
+// ===== 编辑草稿自动保存 =====
+const { draftKey, loadDraft, startAutoSave, clearDraft } = useDraft(
+  `resume-edit:${resumeId}`,
+  () => ({ ...form }),
+  { saveOnUnmount: false }
+)
+// 仅在用户编辑时保存草稿
+watch(
+  () => ({ ...form }),
+  () => { startAutoSave() },
+  { deep: true }
+)
+
+// 加载详情后提示恢复草稿
+const restoreDraft = () => {
+  const draft = loadDraft()
+  if (!draft || !draft.form) return
+  ElMessageBox.confirm(
+    '检测到上次未保存的简历编辑内容，是否恢复？',
+    '草稿恢复',
+    { confirmButtonText: '恢复', cancelButtonText: '清空' }
+  ).then(() => {
+    Object.assign(form, draft.form)
+    ElMessage.success('草稿已恢复')
+  }).catch(() => {
+    clearDraft()
+  })
+}
 
 // 意向城市：数组 ↔ 逗号分隔字符串
 const intentionCitiesText = computed({
@@ -420,12 +466,25 @@ const loadGapResultFromCache = async () => {
 
 const handleSubmit = async () => {
   if (!formRef.value) return
-  await formRef.value.validate(async (valid) => {
-    if (!valid) return
+  await formRef.value.validate(async (valid, invalidFields) => {
+    if (!valid) {
+      // invalidFields 是对象结构: { phone: [{ field: 'phone', message: '...' }] }
+      // 取第一个失败字段并滚动定位
+      if (invalidFields) {
+        const firstKey = Object.keys(invalidFields)[0]
+        if (firstKey) {
+          const errMsg = invalidFields[firstKey]?.[0]?.message
+          ElMessage.warning(errMsg || `请检查必填项: ${fieldLabel[firstKey] || firstKey}`)
+          nextTick(() => scrollToField(firstKey))
+        }
+      }
+      return
+    }
     saving.value = true
     try {
       await resumeApi.update(resumeId, form)
       ElMessage.success('简历更新成功')
+      clearDraft()
       router.push('/seeker/resume/list')
     } catch (e: any) {
       ElMessage.error(e?.message || '更新失败')
@@ -440,7 +499,8 @@ const runGapAnalysis = async () => {
   analyzing.value = true
   gapResult.value = null
   try {
-    const res: any = await resumeApi.gapAnalysis(resumeId)
+    // 传当前编辑中的表单数据, 实时分析无需先保存
+    const res: any = await resumeApi.analyzeForm(resumeId, { ...form })
     const data = res.data || {}
     if (data.gaps && data.gaps.length > 0) {
       gapResult.value = data
@@ -474,11 +534,57 @@ const scoreRingStyle = computed(() => {
   }
 })
 
+// 字段名 → ref 映射
+const fieldRefMap: Record<string, any> = {
+  name: nameRef,
+  gender: genderRef,
+  age: ageRef,
+  phone: phoneRef,
+  email: emailRef,
+  current_city: current_cityRef,
+  education: educationRef,
+  school: schoolRef,
+  major: majorRef,
+  work_years: work_yearsRef,
+  expected_salary_min: expected_salary_minRef,
+  expected_salary_max: expected_salary_maxRef,
+  self_evaluation: self_evaluationRef,
+  skill: skillsRef,
+}
+
+// 滚动并高亮对应字段
+const scrollToField = (fieldName: string) => {
+  const refVar = fieldRefMap[fieldName]
+  if (!refVar) return
+  const el = refVar.value?.$el || refVar.value
+  if (el && el.scrollIntoView) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.classList.add('field-highlight')
+    setTimeout(() => el.classList.remove('field-highlight'), 2000)
+  }
+}
+
+// 字段中文标签
+const fieldLabel: Record<string, string> = {
+  name: '姓名',
+  gender: '性别',
+  age: '年龄',
+  phone: '手机号',
+  email: '邮箱',
+  current_city: '所在城市',
+  education: '学历',
+  school: '学校',
+  major: '专业',
+  work_years: '工作年限',
+  expected_salary_min: '最低薪资',
+  expected_salary_max: '最高薪资',
+  self_evaluation: '自我评价',
+}
+
 // 一键采纳建议
 const applySuggestion = (gap: GapItem) => {
   if (gap.action_type === 'skill' && gap.suggested_value) {
     const sv = gap.suggested_value
-    // 检查是否已存在该技能
     const exists = form.skills.some(s => s.skill_name === sv.skill_name)
     if (exists) {
       ElMessage.info(`技能 "${sv.skill_name}" 已存在`)
@@ -490,26 +596,40 @@ const applySuggestion = (gap: GapItem) => {
       weight: 0.6,
     })
     ElMessage.success(`已添加技能: ${sv.skill_name}`)
+    // 滚动到技能区域
+    nextTick(() => scrollToField('skill'))
   } else if (gap.action_type === 'text' && gap.suggested_value) {
     const field = gap.suggested_value.field
     const value = gap.suggested_value.value
     if (field && field in form) {
       ;(form as any)[field] = value
-      ElMessage.success(`已填充: ${field}`)
+      const label = fieldLabel[field] || field
+      ElMessage.success(`已填充: ${label}`)
+      // 滚动到对应字段
+      nextTick(() => scrollToField(field))
+    } else {
+      ElMessage.info('该建议需要手动修改')
     }
   } else if (gap.action_type === 'number' && gap.suggested_value) {
     const field = gap.suggested_value.field
     const value = gap.suggested_value.value
     if (field && field in form) {
       ;(form as any)[field] = value
-      ElMessage.success(`已设置: ${field}`)
+      const label = fieldLabel[field] || field
+      ElMessage.success(`已设置: ${label}`)
+      nextTick(() => scrollToField(field))
+    } else {
+      ElMessage.info('该建议需要手动修改')
     }
   } else {
     ElMessage.info('该建议需要手动修改')
   }
 }
 
-onMounted(fetchDetail)
+onMounted(async () => {
+  await fetchDetail()
+  restoreDraft()
+})
 </script>
 
 <style scoped>
@@ -652,5 +772,15 @@ onMounted(fetchDetail)
 .gap-actions {
   display: flex;
   gap: 8px;
+}
+
+/* 一键采纳后字段高亮闪烁 */
+.field-highlight {
+  animation: fieldFlash 0.6s ease-in-out 3;
+  border-radius: 8px;
+}
+@keyframes fieldFlash {
+  0%, 100% { background-color: transparent; }
+  50% { background-color: rgba(22, 119, 255, 0.12); }
 }
 </style>

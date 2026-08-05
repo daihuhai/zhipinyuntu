@@ -1,4 +1,5 @@
 """面试邀请路由"""
+import json
 from typing import Optional
 from datetime import datetime
 
@@ -15,6 +16,9 @@ from app.models.resume import Resume
 from app.models.application import JobApplication
 from app.models.interview import Interview
 from app.schemas.common import success, fail, BizError
+from app.ai.ark_client import ark_client
+from app.ai.prompts import build_interview_questions_messages
+from app.api.v1.websocket import notify_user
 
 router = APIRouter(prefix="/interviews", tags=["面试邀请"])
 
@@ -81,6 +85,13 @@ async def create_interview(
         app.status = 2  # 更新投递状态为面试邀请
         db.commit()
         db.refresh(interview)
+        # 实时推送通知给求职者
+        notify_user(app.applicant_id, {
+            "type": "interview",
+            "title": "面试邀请",
+            "content": f"你收到来自 {job.company or '企业'} 的面试邀请: {job.title}",
+            "interview_time": interview_time.isoformat(),
+        })
         return success(data={"id": interview.id}, message="面试邀请已发送")
     except Exception as e:
         db.rollback()
@@ -210,3 +221,97 @@ async def reject_interview(
     inv.status = 2
     db.commit()
     return success(message="已拒绝面试邀请")
+
+
+@router.post("/generate-questions", summary="灵犀AI生成面试问题", response_model=None)
+async def generate_interview_questions(
+    payload: dict,
+    current_user: SysUser = Depends(require_role("ROLE_EMPLOYER", "ROLE_ADMIN")),
+    db: Session = Depends(get_db),
+):
+    """根据候选人简历 + 职位要求, 调用灵犀大模型生成针对性面试问题清单"""
+    import asyncio
+
+    application_id = payload.get("application_id")
+    if not application_id:
+        return fail(BizError.VALIDATION_ERROR, "缺少投递记录ID")
+
+    app = db.get(JobApplication, application_id)
+    if not app:
+        return fail(BizError.RESOURCE_NOT_FOUND, "投递记录不存在")
+
+    # IDOR 防护: 企业只能查看本企业职位的投递者
+    job = db.get(Job, app.job_id)
+    if current_user.role == "ROLE_EMPLOYER" and (not job or job.user_id != current_user.id):
+        return fail(BizError.ROLE_FORBIDDEN, "无权操作非本企业职位的投递记录")
+
+    # 获取简历详情
+    resume = db.execute(
+        select(Resume).where(Resume.id == app.resume_id)
+    ).scalar_one_or_none()
+    if not resume:
+        return fail(BizError.RESOURCE_NOT_FOUND, "简历不存在")
+
+    # 构造职位信息 JSON
+    job_json = json.dumps({
+        "title": job.title,
+        "description": job.description or "",
+        "requirements": [
+            {"skill_name": r.skill_name, "skill_level": r.skill_level, "req_type": r.req_type}
+            for r in job.requirements
+        ],
+        "experience_required": job.experience_required or "",
+        "education_required": job.education_required or "",
+    }, ensure_ascii=False)
+
+    # 构造简历摘要 JSON
+    work_exp = []
+    if resume.raw_parse_json:
+        try:
+            raw = json.loads(resume.raw_parse_json)
+            work_exp = raw.get("work_experience", []) or []
+            projects = raw.get("projects", []) or []
+        except (json.JSONDecodeError, TypeError):
+            projects = []
+    else:
+        projects = []
+
+    resume_json = json.dumps({
+        "name": resume.name or "",
+        "education": resume.education or "",
+        "school": resume.school or "",
+        "major": resume.major or "",
+        "work_years": resume.work_years,
+        "self_evaluation": resume.self_evaluation or "",
+        "skills": [
+            {"skill_name": s.skill_name, "skill_level": s.skill_level}
+            for s in resume.skills
+        ],
+        "work_experience": work_exp,
+        "projects": projects,
+    }, ensure_ascii=False)
+
+    messages = build_interview_questions_messages(job_json, resume_json)
+    try:
+        result, q_usage = await asyncio.to_thread(
+            ark_client.chat_json_lite, messages, temperature=0.4, max_tokens=2048
+        )
+
+        # 记录操作日志
+        try:
+            from app.services.admin_service import admin_service
+            admin_service.write_system_log(
+                db,
+                action="AI_INTERVIEW_QUESTIONS",
+                target_type="application",
+                target_id=application_id,
+                detail=f"灵犀AI生成面试问题: 候选人 {resume.name or '未知'} (投递ID:{application_id})",
+                tokens_in=q_usage.get("prompt_tokens", 0),
+                tokens_out=q_usage.get("completion_tokens", 0),
+            )
+        except Exception:
+            pass
+
+        return success(data=result, message="面试问题生成成功")
+    except Exception as e:
+        return fail(BizError.SYSTEM_ERROR, f"生成失败: {e}")

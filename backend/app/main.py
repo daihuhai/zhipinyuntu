@@ -6,6 +6,7 @@ import logging
 import secrets
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -118,6 +119,23 @@ async def global_exception_handler(request: Request, exc: Exception):
             "code": 5000,
             "message": "系统内部错误",
             "data": None,
+            "trace_id": request.headers.get("X-Trace-Id", ""),
+        },
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """记录 422 请求体验证错误详情"""
+    logger.error(f"请求体验证失败: {request.method} {request.url.path}")
+    logger.error(f"错误详情: {exc.errors()}")
+    logger.error(f"请求体: {exc.body}")
+    return JSONResponse(
+        status_code=422,
+        content={
+            "code": 4220,
+            "message": "请求参数验证失败",
+            "data": exc.errors(),
             "trace_id": request.headers.get("X-Trace-Id", ""),
         },
     )

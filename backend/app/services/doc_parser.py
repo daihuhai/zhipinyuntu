@@ -66,7 +66,8 @@ class DocParser:
         # 截断超长文本 (避免 token 超限)
         truncated = text[:8000]
         messages = build_resume_messages(truncated)
-        result, usage = ark_client.chat_json(messages, temperature=0.0, max_tokens=2048)
+        # 使用 mini 轻量模型加速解析, temperature=0.0 保证确定性输出
+        result, usage = ark_client.chat_json_lite(messages, temperature=0.0, max_tokens=2048)
         logger.info(f"简历结构化完成, 字段: {list(result.keys())}, tokens={usage}")
         return result, usage
 
@@ -76,8 +77,8 @@ class DocParser:
             raise ValueError("职位文本为空")
         truncated = text[:4000]
         messages = build_job_messages(truncated)
-        # max_tokens=1024: 限制输出长度加速推理 (prompt已要求description不超过200字、requirements最多8项)
-        result, usage = ark_client.chat_json(messages, temperature=0.0, max_tokens=1024)
+        # 使用 mini 轻量模型加速解析
+        result, usage = ark_client.chat_json_lite(messages, temperature=0.0, max_tokens=1024)
         # 字段映射容错: 兼容灵犀返回的别名
         field_aliases = {
             "title": ["title", "job_title", "position", "职位名称", "职位"],

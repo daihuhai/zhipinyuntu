@@ -3,9 +3,13 @@
   整合 6 KPI + 9 图表模块 + 实时日志流 + 底部跑马灯
 -->
 <template>
-  <div class="dc-page">
+  <div class="dc-page" :class="{ 'dc-fullscreen': isFullscreen }">
     <!-- 顶部栏 -->
-    <DHeader @refresh="fetchAll" @range-change="onRangeChange" />
+    <DHeader
+      @refresh="fetchAll"
+      @range-change="onRangeChange"
+      @fullscreen="toggleFullscreen"
+    />
 
     <!-- KPI 卡片行 -->
     <KpiRow :data="overview?.kpi as any" />
@@ -66,6 +70,9 @@ const cityDist = ref<any>({ names: [], values: [] })
 const schoolRank = ref<any[]>([])
 const range = ref('7d')
 
+// 全屏状态
+const isFullscreen = ref(false)
+
 const defaultGauges = { parse_rate: 0, job_active_rate: 0, avg_match_score: 0 }
 
 const marqueeTexts = computed(() => {
@@ -91,7 +98,12 @@ const fetchOverview = async () => {
 
 const fetchTrend = async () => {
   try {
-    const res: any = await adminApi.dashboardTrend()
+    const days = range.value === '30d' ? 30 : range.value === '90d' ? 90 : 7
+    const end = new Date()
+    const start = new Date()
+    start.setDate(start.getDate() - days)
+    const fmt = (d: Date) => d.toISOString().split('T')[0]
+    const res: any = await adminApi.dashboardTrend({ start_date: fmt(start), end_date: fmt(end) })
     trend.value = res.data
   } catch {}
 }
@@ -148,6 +160,10 @@ const onRangeChange = (v: string) => {
   fetchAll()
 }
 
+const toggleFullscreen = () => {
+  isFullscreen.value = !isFullscreen.value
+}
+
 // 轮询: 30s 刷新 KPI + 日志
 let fastTimer: ReturnType<typeof setInterval> | null = null
 // 轮询: 5min 刷新全量
@@ -188,7 +204,21 @@ onBeforeUnmount(() => {
   background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
   padding: 12px;
   border-radius: 16px;
-  overflow: hidden;
+  overflow: visible;
+}
+
+/* 全屏模式 */
+.dc-fullscreen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9999;
+  min-height: 100vh;
+  border-radius: 0;
+  padding: 16px;
+  overflow-y: auto;
 }
 
 /* 网格: 3 列 */

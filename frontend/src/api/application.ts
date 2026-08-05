@@ -31,4 +31,10 @@ export const applicationApi = {
   /** 企业投递趋势 (近14天每日投递量 + 职位分布 Top10) */
   employerTrend: () =>
     request.get('/applications/employer/trend'),
+  /** 投递状态时间轴 */
+  timeline: (id: number) =>
+    request.get(`/applications/${id}/timeline`),
+  /** 撤回投递 (求职者) */
+  withdraw: (id: number) =>
+    request.post(`/applications/${id}/withdraw`),
 }

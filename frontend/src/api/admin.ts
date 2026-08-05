@@ -6,8 +6,9 @@ import request from './request'
 export const adminApi = {
   /** 仪表盘统计 */
   dashboard: () => request.get('/admin/dashboard'),
-  /** 仪表盘趋势 (图表) */
-  dashboardTrend: () => request.get('/admin/dashboard/trend'),
+  /** 仪表盘趋势 (图表, 支持日期筛选) */
+  dashboardTrend: (params?: { start_date?: string; end_date?: string }) =>
+    request.get('/admin/dashboard/trend', { params }),
   /** 大数据中心总览 (KPI+Gauge) */
   dashboardOverview: () => request.get('/admin/dashboard/overview'),
   /** 投递统计 */

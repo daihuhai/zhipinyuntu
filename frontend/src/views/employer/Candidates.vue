@@ -42,10 +42,18 @@
         <div class="rec-rank">#{{ idx + 1 }}</div>
         <div class="rec-body">
           <div class="rec-header">
-            <div>
-              <div class="rec-name">{{ item.resume.name || '匿名候选人' }}</div>
-              <div class="rec-meta">
-                {{ item.resume.education || '-' }} · {{ item.resume.school || '-' }} · {{ item.resume.major || '-' }} · {{ item.resume.work_years || 0 }} 年经验
+            <div class="rec-name-row">
+              <el-checkbox
+                v-model="item._checked"
+                :disabled="!item._checked && compareList.length >= 3"
+                @change="onCompareChange"
+                class="compare-cb"
+              />
+              <div>
+                <div class="rec-name">{{ item.resume.name || '匿名候选人' }}</div>
+                <div class="rec-meta">
+                  {{ item.resume.education || '-' }} · {{ item.resume.school || '-' }} · {{ item.resume.major || '-' }} · {{ item.resume.work_years || 0 }} 年经验
+                </div>
               </div>
             </div>
             <div class="rec-score">
@@ -96,10 +104,22 @@
           </div>
         </div>
       </el-card>
-      <el-empty v-if="!list.length && hasFetched" description="该职位暂无投递, 无法推荐候选人">
-        <el-button type="primary" @click="$router.push('/employer/job/list')">返回职位列表</el-button>
-      </el-empty>
-      <el-empty v-if="!list.length && !hasFetched" description="请先选择职位并点击匹配" />
+      <EmptyState
+        v-if="!list.length && hasFetched"
+        icon="upload"
+        title="该职位暂无投递"
+        description="当前职位还没有候选人投递, 无法进行推荐匹配"
+        action-text="返回职位列表"
+        @action="$router.push('/employer/job/list')"
+      />
+      <EmptyState
+        v-else-if="!list.length"
+        icon="upload"
+        title="请先选择职位"
+        description="选择一个职位并点击匹配, 即可查看 AI 推荐的候选人"
+        action-text="选择职位"
+        @action="$router.back()"
+      />
       </template>
     </div>
 
@@ -198,18 +218,63 @@
         </template>
       </div>
     </el-drawer>
+
+    <!-- 对比浮动按钮 -->
+    <transition name="slide-up">
+      <div v-if="compareList.length > 0" class="compare-bar">
+        <span class="compare-info">已选 {{ compareList.length }}/3 位候选人</span>
+        <el-button type="primary" :icon="DataAnalysis" @click="showCompareDialog = true" :disabled="compareList.length < 2">
+          开始对比
+        </el-button>
+        <el-button text @click="clearCompare">清除选择</el-button>
+      </div>
+    </transition>
+
+    <!-- 对比弹窗 -->
+    <el-dialog v-model="showCompareDialog" title="候选人对比" width="800px" :close-on-click-modal="false">
+      <el-table :data="compareRows" border stripe size="small">
+        <el-table-column prop="label" label="对比维度" width="110" fixed />
+        <el-table-column
+          v-for="c in compareList"
+          :key="c.resume.id"
+          :label="c.resume.name || '匿名'"
+          min-width="140"
+          align="center"
+        >
+          <template #default="{ row }">
+            <span v-if="row.key === 'total_score'" :class="{ 'best-val': row.best === c.resume.id }">
+              <strong>{{ row.values[c.resume.id] }}</strong>
+              <el-tag v-if="row.best === c.resume.id" size="small" type="success" effect="dark" style="margin-left:4px">最优</el-tag>
+            </span>
+            <span v-else-if="row.key === 'skills'" class="compare-skills">
+              <el-tag v-for="sk in (row.values[c.resume.id] || []).slice(0, 4)" :key="sk" size="small" effect="plain">
+                {{ sk }}
+              </el-tag>
+            </span>
+            <span v-else :class="{ 'best-val': row.best === c.resume.id && row.best != null }">
+              {{ row.values[c.resume.id] ?? '-' }}
+              <el-tag v-if="row.best === c.resume.id && row.best != null" size="small" type="success" effect="dark" style="margin-left:4px">最优</el-tag>
+            </span>
+          </template>
+        </el-table-column>
+      </el-table>
+      <template #footer>
+        <el-button @click="showCompareDialog = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Refresh, ChatLineRound, View, Document, MagicStick, InfoFilled } from '@element-plus/icons-vue'
+import { Refresh, ChatLineRound, View, Document, MagicStick, InfoFilled, DataAnalysis } from '@element-plus/icons-vue'
 import { jobApi } from '@/api/job'
 import { matchApi } from '@/api/match'
 import { resumeApi } from '@/api/resume'
 import { applicationApi } from '@/api/application'
+import EmptyState from '@/components/EmptyState.vue'
 
 const route = useRoute()
 const jobs = ref<any[]>([])
@@ -224,6 +289,86 @@ const detailLoading = ref(false)
 const currentDetail = ref<any>(null)
 const currentAppId = ref<number | null>(null)
 const currentAppStatus = ref<number>(0)
+
+// 候选人对比
+const showCompareDialog = ref(false)
+
+const compareList = computed(() => list.value.filter((it: any) => it._checked))
+
+const onCompareChange = () => {
+  // el-checkbox v-model 已自动更新 _checked
+}
+
+const clearCompare = () => {
+  list.value.forEach((it: any) => { it._checked = false })
+}
+
+// 对比表格行数据
+const compareRows = computed(() => {
+  const items = compareList.value
+  if (!items.length) return []
+
+  const rows: any[] = []
+  const getVal = (item: any, key: string) => {
+    const r = item.resume
+    switch (key) {
+      case 'total_score': return item.total_score?.toFixed(1)
+      case 'education': return r.education || '-'
+      case 'work_years': return r.work_years != null ? `${r.work_years} 年` : '-'
+      case 'school': return r.school || '-'
+      case 'major': return r.major || '-'
+      case 'skills': return (r.skills || []).map((s: any) => s.skill_name)
+      case 'skill_score': return `${(item.skill_score * 100).toFixed(0)}`
+      case 'exp_score': return `${(item.exp_score * 100).toFixed(0)}`
+      case 'edu_score': return `${(item.edu_score * 100).toFixed(0)}`
+      case 'current_city': return r.current_city || '-'
+      case 'match_reason': return item.match_reason || '-'
+      default: return '-'
+    }
+  }
+
+  // 找最高值的候选人 id (用于高亮)
+  const findBest = (key: string): number | null => {
+    let bestId: number | null = null
+    let bestVal = -Infinity
+    for (const it of items) {
+      const v = Number(getVal(it, key))
+      if (!isNaN(v) && v > bestVal) {
+        bestVal = v
+        bestId = it.resume.id
+      }
+    }
+    return bestId
+  }
+
+  const dims = [
+    { label: '匹配得分', key: 'total_score' },
+    { label: '学历', key: 'education' },
+    { label: '学校', key: 'school' },
+    { label: '专业', key: 'major' },
+    { label: '工作年限', key: 'work_years' },
+    { label: '所在城市', key: 'current_city' },
+    { label: '技能覆盖', key: 'skills' },
+    { label: '技能分', key: 'skill_score' },
+    { label: '经验分', key: 'exp_score' },
+    { label: '学历分', key: 'edu_score' },
+    { label: '匹配理由', key: 'match_reason' },
+  ]
+
+  for (const dim of dims) {
+    const valuesMap: Record<number, any> = {}
+    for (const it of items) {
+      valuesMap[it.resume.id] = getVal(it, dim.key)
+    }
+    let best: number | null = null
+    if (['total_score', 'skill_score', 'exp_score', 'edu_score', 'work_years'].includes(dim.key)) {
+      best = findBest(dim.key)
+    }
+    rows.push({ label: dim.label, key: dim.key, values: valuesMap, best })
+  }
+
+  return rows
+})
 
 const fetchJobs = async () => {
   try {
@@ -244,7 +389,7 @@ const fetchRecommend = async () => {
   list.value = []
   try {
     const res: any = await matchApi.recommendResumes(jobId.value, 10)
-    list.value = res.data?.items || []
+    list.value = (res.data?.items || []).map((it: any) => ({ ...it, _checked: false }))
     hasFetched.value = true
   } catch (e: any) {
     ElMessage.error(e?.message || '候选人推荐失败, 请稍后重试')
@@ -431,4 +576,23 @@ onMounted(fetchJobs)
 .file-section { margin-top: 24px; text-align: center; padding-top: 16px; border-top: 1px solid #f0f0f0; }
 .status-section { margin-top: 20px; }
 .status-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+/* 候选人对比 */
+.rec-name-row { display: flex; align-items: center; gap: 10px; }
+.compare-cb { flex-shrink: 0; }
+
+/* 对比浮动按钮 */
+.compare-bar {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 12px;
+  background: #fff; box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+  border-radius: 30px; padding: 10px 24px; z-index: 100;
+}
+.compare-info { font-size: 14px; color: #555; font-weight: 500; }
+.slide-up-enter-active, .slide-up-leave-active { transition: all 0.3s ease; }
+.slide-up-enter-from, .slide-up-leave-to { opacity: 0; transform: translateX(-50%) translateY(20px); }
+
+/* 对比弹窗 */
+.best-val { color: #52c41a; font-weight: 700; }
+.compare-skills { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
 </style>

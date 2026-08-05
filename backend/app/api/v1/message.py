@@ -19,6 +19,7 @@ from app.db.base import get_db
 from app.models.user import SysUser
 from app.models.message import Message
 from app.schemas.common import success, fail, BizError
+from app.api.v1.websocket import notify_user
 
 router = APIRouter(prefix="/messages", tags=["消息"])
 
@@ -71,6 +72,15 @@ async def send_message(
         db.add(msg)
         db.commit()
         db.refresh(msg)
+        # 实时推送新消息给接收方
+        notify_user(req.receiver_id, {
+            "type": "message",
+            "message_id": msg.id,
+            "sender_id": current_user.id,
+            "sender_name": current_user.nickname,
+            "content": msg.content,
+            "created_at": msg.created_at.isoformat() if msg.created_at else None,
+        })
         return success(data=_message_to_dict(msg, current_user), message="发送成功")
     except Exception as e:
         db.rollback()

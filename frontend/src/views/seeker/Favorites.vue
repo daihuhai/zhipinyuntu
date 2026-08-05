@@ -16,7 +16,8 @@
       </div>
     </el-card>
 
-    <div v-loading="loading" class="fav-grid">
+    <div class="fav-grid">
+      <SkeletonList v-if="loading && !list.length" :count="4" />
       <el-card v-for="item in list" :key="item.id" shadow="hover" class="fav-card" @click="goDetail(item)">
         <div class="fav-header">
           <div class="fav-title">{{ item.title || item.job?.title || '未命名职位' }}</div>
@@ -49,9 +50,14 @@
           </el-button>
         </div>
       </el-card>
-      <el-empty v-if="!loading && !list.length" description="还没有收藏的职位, 去职位广场看看吧">
-        <el-button type="primary" @click="$router.push('/seeker/jobs')">浏览职位广场</el-button>
-      </el-empty>
+      <EmptyState
+        v-if="!loading && !list.length"
+        icon="star"
+        title="还没有收藏的职位"
+        description="遇到心仪的职位可以点击收藏, 方便随时查看对比"
+        action-text="去职位广场看看"
+        @action="$router.push('/seeker/jobs')"
+      />
     </div>
   </div>
 </template>
@@ -63,6 +69,8 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Star, OfficeBuilding, Clock, Delete, Refresh } from '@element-plus/icons-vue'
 import { jobApi } from '@/api/job'
 import { formatSalary } from '@/utils/format'
+import SkeletonList from '@/components/SkeletonList.vue'
+import EmptyState from '@/components/EmptyState.vue'
 
 const router = useRouter()
 const list = ref<any[]>([])

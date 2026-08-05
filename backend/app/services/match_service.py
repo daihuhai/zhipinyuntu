@@ -370,7 +370,7 @@ class MatchService:
                 jobs_json=json.dumps(jobs_brief, ensure_ascii=False),
             )
             # max_tokens=1024: 6 个候选各 1 句 reason, 约 600 token
-            arr, usage = ark_client.chat_json_array(messages, temperature=0.1, max_tokens=1024)
+            arr, usage = ark_client.chat_json_array_lite(messages, temperature=0.1, max_tokens=1024)
             self._add_usage(usage)
             for item in arr:
                 idx = int(item.get("idx", -1))
@@ -422,7 +422,7 @@ class MatchService:
                     resume_json=resume_json,
                     job_json=json.dumps(job_brief, ensure_ascii=False),
                 )
-                llm_result, usage = ark_client.chat_json(messages, temperature=0.1, max_tokens=256)
+                llm_result, usage = ark_client.chat_json_lite(messages, temperature=0.1, max_tokens=256)
                 self._add_usage(usage)
                 return idx, float(llm_result.get("score", dims["total"])), llm_result.get("reason", "")
             except Exception as e:
@@ -750,7 +750,7 @@ class MatchService:
                     resume_json=json.dumps(self._resume_brief(resume), ensure_ascii=False),
                     job_json=job_json,
                 )
-                llm_result, usage = ark_client.chat_json(messages, temperature=0.1)
+                llm_result, usage = ark_client.chat_json_lite(messages, temperature=0.1)
                 self._add_usage(usage)
                 llm_score = float(llm_result.get("score", dims["total"]))
                 reason = llm_result.get("reason", "")

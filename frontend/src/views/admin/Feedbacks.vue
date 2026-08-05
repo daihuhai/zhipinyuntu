@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { ElMessage, type FormInstance } from 'element-plus'
 import { ChatLineSquare, Search } from '@element-plus/icons-vue'
 import { feedbackApi } from '@/api/feedback'
@@ -9,6 +9,13 @@ const loading = ref(false)
 const statusFilter = ref('')
 const typeFilter = ref('')
 const keyword = ref('')
+let debounceTimer: ReturnType<typeof setTimeout> | null = null
+watch(keyword, () => {
+  if (debounceTimer) clearTimeout(debounceTimer)
+  debounceTimer = setTimeout(() => {
+    handleSearch()
+  }, 300)
+})
 const page = ref(1)
 const size = ref(20)
 const total = ref(0)

@@ -25,4 +25,11 @@ export const resumeApi = {
   remove: (id: number) => request.delete(`/resumes/${id}`),
   /** 灵犀分析简历缺失项 */
   gapAnalysis: (id: number) => request.post(`/resumes/${id}/gap-analysis`, {}, { timeout: 600000 }),
+  /** 灵犀分析编辑中的简历(实时, 传当前表单数据) */
+  analyzeForm: (id: number, formData: any) =>
+    request.post(`/resumes/${id}/analyze-form`, { form_data: formData }, { timeout: 600000 }),
+  /** 灵犀AI简历优化建议 */
+  optimize: (id: number) => request.post(`/resumes/${id}/optimize`, {}, { timeout: 600000 }),
+  /** 求职者竞争力分析 */
+  competitiveness: (id: number) => request.get(`/resumes/${id}/competitiveness`),
 }

@@ -13,6 +13,7 @@ from app.models.license import BusinessLicense
 from app.models.subscription import JobSubscription
 from app.models.payment import PaymentRecord
 from app.models.feedback import Feedback
+from app.models.company_review import CompanyReview
 
 __all__ = [
     "SysUser",
@@ -29,4 +30,5 @@ __all__ = [
     "JobSubscription",
     "PaymentRecord",
     "Feedback",
+    "CompanyReview",
 ]

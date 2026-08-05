@@ -140,6 +140,7 @@ def _build_token_pair(user: SysUser) -> dict:
         "nickname": user.nickname,
         "role": user.role,
         "avatar_url": user.avatar_url,
+        "onboard_done": user.onboard_done,
         "access_token": access_token,
         "refresh_token": refresh_token,
         "expires_in": expires_in,

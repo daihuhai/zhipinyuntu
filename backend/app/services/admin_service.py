@@ -477,17 +477,33 @@ class AdminService:
             "recent_jobs": [self._job_dict(j) for j in recent_jobs],
         }
 
-    def get_dashboard_trend(self, db: Session) -> dict[str, Any]:
-        """仪表盘图表数据: 用户增长趋势 + 简历状态分布 + 职位状态分布 + 热门技能 Top10"""
+    def get_dashboard_trend(self, db: Session, start_date: str | None = None, end_date: str | None = None) -> dict[str, Any]:
+        """仪表盘图表数据 (支持日期范围筛选)"""
         from datetime import datetime, timedelta
         from app.models.resume import ResumeSkill
         from app.models.job import JobRequirement
 
-        # 1. 用户增长趋势 (近 14 天)
+        # 日期范围解析 (默认近 14 天)
         today = datetime.utcnow().date()
-        days = [(today - timedelta(days=i)) for i in range(13, -1, -1)]
+        if start_date and end_date:
+            try:
+                d_start = datetime.strptime(start_date, "%Y-%m-%d").date()
+                d_end = datetime.strptime(end_date, "%Y-%m-%d").date()
+                if d_start > d_end:
+                    d_start, d_end = d_end, d_start
+            except ValueError:
+                d_start = today - timedelta(days=13)
+                d_end = today
+        else:
+            d_start = today - timedelta(days=13)
+            d_end = today
+
+        num_days = (d_end - d_start).days + 1
+        days = [(d_start + timedelta(days=i)) for i in range(num_days)]
         day_labels = [d.strftime("%m-%d") for d in days]
         day_counts = {d.strftime("%Y-%m-%d"): 0 for d in days}
+
+        # 1. 用户增长趋势 (按日期范围)
         users = list(db.execute(select(SysUser.created_at)).all())
         for (ts,) in users:
             if ts:

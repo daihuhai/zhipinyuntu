@@ -21,7 +21,8 @@
           </div>
         </div>
       </template>
-      <el-table :data="list" v-loading="loading" stripe>
+      <SkeletonTable v-if="loading && !list.length" :count="6" :cols="5" />
+      <el-table v-if="!(loading && !list.length)" :data="list" stripe>
         <el-table-column prop="title" label="职位名称" min-width="180" />
         <el-table-column prop="company" label="公司" width="140" />
         <el-table-column prop="work_city" label="城市" width="80" />
@@ -80,16 +81,23 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, ArrowDown, Search } from '@element-plus/icons-vue'
 import { jobApi } from '@/api/job'
 import { formatSalary } from '@/utils/format'
+import SkeletonTable from '@/components/SkeletonTable.vue'
 
 const list = ref<any[]>([])
 const loading = ref(false)
 const keyword = ref('')
-let searchTimer: any = null
+let debounceTimer: ReturnType<typeof setTimeout> | null = null
+watch(keyword, () => {
+  if (debounceTimer) clearTimeout(debounceTimer)
+  debounceTimer = setTimeout(() => {
+    fetchList()
+  }, 300)
+})
 
 const fetchList = async () => {
   loading.value = true
@@ -105,8 +113,7 @@ const fetchList = async () => {
 }
 
 const onSearch = () => {
-  clearTimeout(searchTimer)
-  searchTimer = setTimeout(fetchList, 300)
+  fetchList()
 }
 
 const statusText = (s: number) => ({ 0: '下架', 1: '招聘中', 2: '草稿' }[s] || '未知')

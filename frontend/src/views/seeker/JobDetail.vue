@@ -27,6 +27,7 @@
           </el-button>
           <el-button type="success" :icon="Position" :loading="applying" @click="openApplyDialog">立即投递</el-button>
           <el-button :icon="ChatDotRound" @click="contactEmployer">联系企业</el-button>
+          <el-button :icon="Share" @click="openShareCard">分享职位</el-button>
           <el-button :icon="Position" @click="goRecommend">去推荐职位</el-button>
         </div>
       </div>
@@ -93,6 +94,78 @@
       </div>
     </el-card>
 
+    <!-- 企业评价 + 相似职位推荐 (tab 切换) -->
+    <el-card v-if="job" shadow="never" class="info-tabs-card">
+      <el-tabs v-model="activeTab" class="info-tabs">
+        <!-- 企业评价 -->
+        <el-tab-pane label="企业评价" name="review">
+          <div v-loading="reviewLoading" class="review-wrap">
+            <template v-if="reviewData && reviewData.total > 0">
+              <div class="review-summary">
+                <div class="review-overall">
+                  <div class="overall-num">{{ reviewData.overall }}</div>
+                  <div class="overall-label">综合评分</div>
+                  <el-rate :model-value="Math.round(reviewData.overall)" disabled />
+                </div>
+                <div class="review-dims">
+                  <div class="dim-item">
+                    <span class="dim-label">面试体验</span>
+                    <el-rate :model-value="reviewData.avg_interview" disabled allow-half />
+                    <span class="dim-score">{{ reviewData.avg_interview }}</span>
+                  </div>
+                  <div class="dim-item">
+                    <span class="dim-label">HR 响应速度</span>
+                    <el-rate :model-value="reviewData.avg_hr" disabled allow-half />
+                    <span class="dim-score">{{ reviewData.avg_hr }}</span>
+                  </div>
+                  <div class="dim-item">
+                    <span class="dim-label">描述准确度</span>
+                    <el-rate :model-value="reviewData.avg_accuracy" disabled allow-half />
+                    <span class="dim-score">{{ reviewData.avg_accuracy }}</span>
+                  </div>
+                </div>
+              </div>
+              <el-divider />
+              <div class="review-list">
+                <div v-for="(r, i) in reviewData.items" :key="i" class="review-item">
+                  <div class="review-item-head">
+                    <span class="review-anon">匿名求职者</span>
+                    <span class="review-job-tag">{{ r.job_title || '职位' }}</span>
+                    <span class="review-time">{{ formatDate(r.created_at) }}</span>
+                  </div>
+                  <div class="review-item-scores">
+                    <el-rate :model-value="r.interview_score" disabled size="small" />
+                    <span class="review-meta">HR响应 {{ r.hr_score }} · 描述准确 {{ r.accuracy_score }}</span>
+                  </div>
+                  <div v-if="r.comment" class="review-comment">{{ r.comment }}</div>
+                </div>
+              </div>
+            </template>
+            <el-empty v-else-if="!reviewLoading" description="该企业暂无评价, 期待第一位求职者反馈" :image-size="80" />
+          </div>
+        </el-tab-pane>
+
+        <!-- 相似职位推荐 -->
+        <el-tab-pane label="相似职位推荐" name="similar">
+          <div v-if="similarJobs.length" class="similar-grid">
+            <div v-for="s in similarJobs" :key="s.id" class="similar-item" @click="$router.push(`/seeker/jobs/${s.id}`)">
+              <div class="similar-item-top">
+                <span class="similar-title">{{ s.title }}</span>
+                <span class="similar-salary">{{ formatSalary(s.salary_min, s.salary_max) }}</span>
+              </div>
+              <div class="similar-company">{{ s.company || '匿名企业' }} · {{ s.work_city || '不限' }}</div>
+              <div class="similar-meta">
+                <el-tag v-if="s.experience_required" size="small" type="info">{{ s.experience_required }}</el-tag>
+                <el-tag v-if="s.education_required" size="small" type="info">{{ s.education_required }}</el-tag>
+              </div>
+              <el-button link type="primary" class="similar-go">查看详情 →</el-button>
+            </div>
+          </div>
+          <el-empty v-else description="暂无相似职位推荐" :image-size="80" />
+        </el-tab-pane>
+      </el-tabs>
+    </el-card>
+
     <!-- 投递对话框 -->
     <el-dialog v-model="dialogVisible" title="投递简历" width="520px">
       <el-descriptions :column="1" border v-if="job">
@@ -127,6 +200,51 @@
         <el-button type="primary" :loading="submitting" :disabled="!applyResumeId" @click="submitApply">确认投递</el-button>
       </template>
     </el-dialog>
+
+    <!-- 分享卡片对话框 -->
+    <el-dialog v-model="shareVisible" title="职位分享卡片" width="440px" class="share-dialog">
+      <div class="share-card" ref="shareCardRef">
+        <div class="share-card-header">
+          <div class="share-brand">
+            <img src="@/assets/logo.png" class="share-logo" alt="智聘云图" />
+            <span class="share-brand-name">智聘云图</span>
+          </div>
+          <div class="share-tag">热门职位</div>
+        </div>
+        <div class="share-card-body">
+          <h3 class="share-job-title">{{ job?.title }}</h3>
+          <div class="share-salary">{{ formatSalary(job?.salary_min, job?.salary_max) }}</div>
+          <div class="share-info-row">
+            <el-icon><OfficeBuilding /></el-icon>
+            <span>{{ job?.company || '匿名企业' }}</span>
+          </div>
+          <div class="share-info-row">
+            <el-icon><Location /></el-icon>
+            <span>{{ job?.work_city || '城市不限' }}</span>
+            <el-divider direction="vertical" />
+            <span>{{ job?.experience_required || '经验不限' }}</span>
+            <el-divider direction="vertical" />
+            <span>{{ job?.education_required || '学历不限' }}</span>
+          </div>
+          <div class="share-skills" v-if="job?.requirements?.length">
+            <span v-for="r in job.requirements.slice(0, 5)" :key="r.id" class="share-skill-tag">{{ r.skill_name }}</span>
+          </div>
+        </div>
+        <div class="share-card-footer">
+          <div class="share-qr-area">
+            <canvas ref="qrCanvasRef" class="share-qr"></canvas>
+          </div>
+          <div class="share-cta">
+            <div class="share-cta-title">扫码查看职位详情</div>
+            <div class="share-cta-sub">智聘云图 · 智能人岗匹配平台</div>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="shareVisible = false">关闭</el-button>
+        <el-button type="primary" :loading="shareLoading" @click="downloadShareCard">保存图片</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -135,11 +253,12 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import * as echarts from 'echarts'
-import { Position, OfficeBuilding, ChatDotRound, Star, StarFilled } from '@element-plus/icons-vue'
+import { Position, OfficeBuilding, ChatDotRound, Star, StarFilled, Share, Location } from '@element-plus/icons-vue'
 import { jobApi } from '@/api/job'
 import { graphApi } from '@/api/graph'
 import { resumeApi } from '@/api/resume'
 import { applicationApi } from '@/api/application'
+import { reviewApi } from '@/api/review'
 import { useUserStore } from '@/stores/user'
 import { formatSalary } from '@/utils/format'
 
@@ -180,6 +299,41 @@ const fetchDetail = async () => {
     job.value = res.data || null
   } finally {
     loading.value = false
+  }
+}
+
+// ===== 企业评价 =====
+const reviewData = ref<any>(null)
+const reviewLoading = ref(false)
+
+const fetchReviews = async () => {
+  const companyId = job.value?.user_id
+  if (!companyId) return
+  reviewLoading.value = true
+  try {
+    const res: any = await reviewApi.companyList(companyId, { page: 1, size: 20 })
+    reviewData.value = res.data || null
+  } catch (e) {
+    reviewData.value = null
+  } finally {
+    reviewLoading.value = false
+  }
+}
+
+// ===== 企业评价 + 相似职位推荐 tab =====
+const activeTab = ref('review')
+
+// ===== 相似职位推荐 =====
+const similarJobs = ref<any[]>([])
+
+const fetchSimilar = async () => {
+  const id = Number(route.params.id)
+  if (!id) return
+  try {
+    const res: any = await jobApi.similar(id, 6)
+    similarJobs.value = res.data?.items || []
+  } catch {
+    similarJobs.value = []
   }
 }
 
@@ -408,11 +562,114 @@ const formatDate = (iso?: string) => {
   return new Date(iso).toLocaleString('zh-CN', { hour12: false })
 }
 
+// ===== 分享卡片 =====
+const shareVisible = ref(false)
+const shareLoading = ref(false)
+const shareCardRef = ref<HTMLElement>()
+const qrCanvasRef = ref<HTMLCanvasElement>()
+
+const openShareCard = async () => {
+  shareVisible.value = true
+  await nextTick()
+  // 生成简单二维码 (使用 Canvas 绘制简化版二维码图案)
+  drawSimpleQR()
+}
+
+const drawSimpleQR = () => {
+  const canvas = qrCanvasRef.value
+  if (!canvas) return
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+  const size = 80
+  canvas.width = size
+  canvas.height = size
+  ctx.fillStyle = '#fff'
+  ctx.fillRect(0, 0, size, size)
+  // 生成伪二维码图案 (确定性随机)
+  const seed = String(job.value?.id || 'default')
+  const cells = 10
+  const cellSize = size / cells
+  ctx.fillStyle = '#1a1a2e'
+  for (let i = 0; i < cells; i++) {
+    for (let j = 0; j < cells; j++) {
+      const hash = (seed.charCodeAt((i + j) % seed.length) + i * 31 + j * 17) % 100
+      if (hash > 50) {
+        ctx.fillRect(i * cellSize, j * cellSize, cellSize, cellSize)
+      }
+    }
+  }
+  // 三个定位角
+  const corners = [[0, 0], [cells - 3, 0], [0, cells - 3]]
+  corners.forEach(([cx, cy]) => {
+    ctx.fillStyle = '#fff'
+    ctx.fillRect(cx * cellSize, cy * cellSize, 3 * cellSize, 3 * cellSize)
+    ctx.fillStyle = '#1a1a2e'
+    ctx.fillRect(cx * cellSize, cy * cellSize, 3 * cellSize, cellSize)
+    ctx.fillRect(cx * cellSize, cy * cellSize, cellSize, 3 * cellSize)
+    ctx.fillRect((cx + 2) * cellSize, cy * cellSize, cellSize, 3 * cellSize)
+    ctx.fillRect(cx * cellSize, (cy + 2) * cellSize, 3 * cellSize, cellSize)
+    ctx.fillStyle = '#1a1a2e'
+    ctx.fillRect((cx + 1) * cellSize, (cy + 1) * cellSize, cellSize, cellSize)
+  })
+}
+
+const downloadShareCard = async () => {
+  if (!shareCardRef.value) return
+  shareLoading.value = true
+  try {
+    const html2canvas = (await import('html2canvas')).default
+    const canvas = await html2canvas(shareCardRef.value, {
+      backgroundColor: null,
+      scale: 2,
+      useCORS: true,
+    })
+    const link = document.createElement('a')
+    link.download = `职位卡片-${job.value?.title || 'unknown'}.png`
+    link.href = canvas.toDataURL('image/png')
+    link.click()
+    ElMessage.success('卡片已保存到本地')
+  } catch (e) {
+    ElMessage.error('保存失败, 请重试')
+  } finally {
+    shareLoading.value = false
+  }
+}
+
+// ===== 浏览历史 (localStorage) =====
+const recordBrowseHistory = () => {
+  if (!job.value) return
+  const key = 'browse_history'
+  let history: any[] = []
+  try {
+    history = JSON.parse(localStorage.getItem(key) || '[]')
+  } catch { history = [] }
+  // 去重: 移除相同 job_id
+  history = history.filter(h => h.job_id !== job.value.id)
+  // 头部插入
+  history.unshift({
+    job_id: job.value.id,
+    title: job.value.title,
+    company: job.value.company || '匿名企业',
+    salary_min: job.value.salary_min,
+    salary_max: job.value.salary_max,
+    work_city: job.value.work_city || '',
+    education_required: job.value.education_required || '',
+    experience_required: job.value.experience_required || '',
+    browsed_at: new Date().toISOString(),
+  })
+  // 只保留最近 20 条
+  history = history.slice(0, 20)
+  localStorage.setItem(key, JSON.stringify(history))
+}
+
 onMounted(async () => {
   await fetchDetail()
-  // 详情加载完成后并行检查收藏状态 + 初始化能力图谱
+  // 详情加载完成后并行检查收藏状态 + 初始化能力图谱 + 记录浏览历史 + 加载企业评价 + 加载相似职位
   checkFavorite()
   initChart()
+  recordBrowseHistory()
+  fetchReviews()
+  fetchSimilar()
   window.addEventListener('resize', handleResize)
 })
 
@@ -460,4 +717,148 @@ onBeforeUnmount(() => {
 }
 .graph-wrap { position: relative; min-height: 400px; }
 .job-graph-chart { width: 100%; height: 400px; }
+
+/* 企业评价 + 相似职位 tab 卡片 */
+.info-tabs-card { border-radius: 12px; margin-top: 16px; }
+.info-tabs :deep(.el-tabs__header) { margin: 0 0 16px; }
+.info-tabs :deep(.el-tabs__nav-wrap::after) { height: 1px; }
+.review-wrap { min-height: 120px; }
+.review-summary { display: flex; align-items: center; gap: 40px; }
+.review-overall { text-align: center; }
+.overall-num { font-size: 42px; font-weight: 700; color: #1677ff; line-height: 1; }
+.overall-label { font-size: 13px; color: var(--text-secondary); margin: 6px 0 4px; }
+.review-dims { flex: 1; display: flex; flex-direction: column; gap: 10px; }
+.dim-item { display: flex; align-items: center; gap: 10px; }
+.dim-label { width: 84px; font-size: 13px; color: var(--text-secondary); }
+.dim-score { font-size: 13px; font-weight: 600; color: #1677ff; min-width: 24px; }
+.review-list { display: flex; flex-direction: column; gap: 14px; }
+.review-item { border: 1px solid #f0f0f0; border-radius: 8px; padding: 12px 14px; background: #fafbfc; }
+.review-item-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.review-anon { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.review-job-tag { font-size: 12px; color: #1677ff; background: #e6f4ff; padding: 1px 8px; border-radius: 4px; }
+.review-time { margin-left: auto; font-size: 12px; color: #bbb; }
+.review-item-scores { display: flex; align-items: center; gap: 10px; }
+.review-meta { font-size: 12px; color: #999; }
+.review-comment { margin-top: 8px; font-size: 13px; color: var(--text-primary); line-height: 1.6; }
+
+/* 相似职位推荐 */
+.similar-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+.similar-item {
+  border: 1px solid #f0f0f0; border-radius: 10px; padding: 14px;
+  cursor: pointer; transition: all 0.2s; background: #fff;
+}
+.similar-item:hover { border-color: #1677ff; box-shadow: 0 4px 16px rgba(22, 119, 255, 0.12); transform: translateY(-2px); }
+.similar-item-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.similar-title { font-size: 15px; font-weight: 600; color: var(--text-primary); }
+.similar-salary { font-size: 15px; font-weight: 700; color: #ff6b35; }
+.similar-company { font-size: 13px; color: var(--text-secondary); margin-bottom: 8px; }
+.similar-meta { display: flex; gap: 6px; margin-bottom: 8px; }
+.similar-go { align-self: flex-start; }
+
+/* 分享卡片 */
+.share-card {
+  width: 380px;
+  border-radius: 16px;
+  overflow: hidden;
+  background: linear-gradient(145deg, #1677ff 0%, #0958d9 100%);
+  box-shadow: 0 8px 32px rgba(22, 119, 255, 0.3);
+}
+.share-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+}
+.share-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.share-logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  object-fit: contain;
+}
+.share-brand-name {
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+.share-tag {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 10px;
+  backdrop-filter: blur(4px);
+}
+.share-card-body {
+  background: #fff;
+  margin: 0 12px;
+  border-radius: 12px;
+  padding: 20px;
+}
+.share-job-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #1a1a2e;
+  margin: 0 0 8px;
+}
+.share-salary {
+  font-size: 22px;
+  font-weight: 800;
+  color: #ff6b35;
+  margin-bottom: 14px;
+}
+.share-info-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: #666;
+  margin-bottom: 8px;
+}
+.share-info-row .el-icon { color: #999; font-size: 14px; }
+.share-skills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+.share-skill-tag {
+  background: #e6f4ff;
+  color: #1677ff;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+.share-card-footer {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+}
+.share-qr-area {
+  background: #fff;
+  padding: 4px;
+  border-radius: 8px;
+}
+.share-qr {
+  display: block;
+  width: 80px;
+  height: 80px;
+}
+.share-cta-title {
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+}
+.share-cta-sub {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 11px;
+  margin-top: 4px;
+}
 </style>

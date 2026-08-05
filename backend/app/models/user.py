@@ -47,6 +47,8 @@ class SysUser(Base):
     # 状态
     status: Mapped[int] = mapped_column(SmallInteger, default=1, comment="0=禁用 1=启用")
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # 新用户引导: 0=未完成(需展示引导) 1=已完成(不再展示)
+    onboard_done: Mapped[int] = mapped_column(SmallInteger, default=0, comment="0=引导未完成 1=引导已完成")
 
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())

@@ -83,6 +83,37 @@ class ArkClient:
         raw, usage = self.chat(messages, model=model, temperature=temperature, max_tokens=max_tokens)
         return _safe_parse_json_array(raw), usage
 
+    # ===== 轻量模型便捷方法 (使用 mini 模型, 适用于匹配重排/分析建议/内容生成等轻任务) =====
+
+    def chat_lite(
+        self,
+        messages: list[dict[str, str]],
+        temperature: float = 0.1,
+        max_tokens: int = 4096,
+    ) -> tuple[str, dict[str, int]]:
+        """轻量模型对话补全, 返回 (文本内容, usage)"""
+        return self.chat(messages, model=settings.ARK_CHAT_MODEL_LITE, temperature=temperature, max_tokens=max_tokens)
+
+    def chat_json_lite(
+        self,
+        messages: list[dict[str, str]],
+        temperature: float = 0.1,
+        max_tokens: int = 4096,
+    ) -> tuple[dict[str, Any], dict[str, int]]:
+        """轻量模型对话补全并解析为 JSON, 返回 (dict, usage)"""
+        raw, usage = self.chat_lite(messages, temperature=temperature, max_tokens=max_tokens)
+        return _safe_parse_json(raw), usage
+
+    def chat_json_array_lite(
+        self,
+        messages: list[dict[str, str]],
+        temperature: float = 0.1,
+        max_tokens: int = 4096,
+    ) -> tuple[list[dict[str, Any]], dict[str, int]]:
+        """轻量模型对话补全并解析为 JSON 数组, 返回 (list, usage)"""
+        raw, usage = self.chat_lite(messages, temperature=temperature, max_tokens=max_tokens)
+        return _safe_parse_json_array(raw), usage
+
     def embed(self, texts: list[str] | str, model: str | None = None) -> list[list[float]]:
         """文本向量化, 返回向量列表
         - 普通模型: 走 OpenAI SDK embeddings.create (支持批量)

@@ -96,8 +96,21 @@ async def me(current_user: SysUser = Depends(get_current_user)):
         "status": current_user.status,
         "is_vip": current_user.vip_active,
         "vip_expire_at": current_user.vip_expire_at.isoformat() if current_user.vip_expire_at else None,
+        "onboard_done": current_user.onboard_done,
     }
     return success(data=data)
+
+
+@router.post("/onboard-done", summary="标记新用户引导完成", response_model=None)
+async def onboard_done(
+    current_user: SysUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """标记当前用户已完成新用户引导, 之后登录不再展示引导"""
+    if current_user.onboard_done != 1:
+        current_user.onboard_done = 1
+        db.commit()
+    return success(message="引导完成状态已保存")
 
 
 @router.put("/profile", summary="修改个人信息", response_model=None)

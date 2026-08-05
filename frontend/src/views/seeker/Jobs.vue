@@ -23,6 +23,7 @@
         <el-button text :icon="filterOpen ? ArrowUp : ArrowDown" @click="filterOpen = !filterOpen">
           {{ filterOpen ? '收起筛选' : '展开筛选' }}
         </el-button>
+        <el-button plain :icon="Clock" @click="historyVisible = true">浏览历史</el-button>
       </div>
       <transition name="el-zoom-in-top">
         <div v-show="filterOpen" class="filter-row" style="margin-top: 12px">
@@ -77,9 +78,42 @@
           </div>
         </div>
       </el-card>
-      <el-empty v-if="!loading && !list.length" description="暂无符合条件的职位, 试试调整筛选条件" />
+      <EmptyState
+        v-if="!loading && !list.length"
+        icon="briefcase"
+        title="暂无符合条件的职位"
+        description="可以尝试调整筛选条件或清除搜索关键词, 会有更多职位等你发现"
+        action-text="重置筛选"
+        @action="resetFilters"
+      />
       </template>
     </div>
+
+    <!-- 浏览历史弹窗 -->
+    <el-dialog v-model="historyVisible" title="浏览历史" width="600px">
+      <div v-if="history.length === 0" class="history-empty">
+        <el-empty description="暂无浏览记录" :image-size="80" />
+      </div>
+      <div v-else class="history-dialog-list">
+        <div v-for="item in history" :key="item.job_id + item.browsed_at" class="history-item" @click="goDetail(item.job_id); historyVisible = false">
+          <div class="history-item-main">
+            <span class="history-item-title">{{ item.title }}</span>
+            <span class="history-item-salary">{{ formatSalary(item.salary_min, item.salary_max) }}</span>
+          </div>
+          <div class="history-item-info">
+            <span>{{ item.company }}</span>
+            <el-divider direction="vertical" />
+            <span>{{ item.work_city || '不限' }}</span>
+            <el-divider direction="vertical" />
+            <span class="history-item-time">{{ formatBrowsedTime(item.browsed_at) }}</span>
+          </div>
+        </div>
+      </div>
+      <template #footer v-if="history.length">
+        <el-button type="danger" plain :icon="Delete" @click="clearHistory">清空历史</el-button>
+        <el-button @click="historyVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
 
     <el-pagination
       v-if="total > size"
@@ -94,12 +128,14 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { Search, ArrowDown, ArrowUp } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Search, ArrowDown, ArrowUp, Clock, Delete } from '@element-plus/icons-vue'
 import { jobApi } from '@/api/job'
 import { formatSalary } from '@/utils/format'
 import SkeletonList from '@/components/SkeletonList.vue'
+import EmptyState from '@/components/EmptyState.vue'
 
 const router = useRouter()
 const list = ref<any[]>([])
@@ -124,6 +160,15 @@ const filters = ref({
 // 城市与经验选项 (从已有数据动态提取, 兜底常用值)
 const cityOptions = ref<string[]>(['北京', '上海', '深圳', '杭州', '广州', '成都', '南京', '武汉', '西安'])
 const expOptions = ref<string[]>(['应届', '1-3年', '3-5年', '5-10年', '10年以上'])
+
+// 搜索防抖 (300ms)
+let debounceTimer: ReturnType<typeof setTimeout> | null = null
+watch(keyword, (val) => {
+  if (debounceTimer) clearTimeout(debounceTimer)
+  debounceTimer = setTimeout(() => {
+    handleSearch()
+  }, 300)
+})
 
 const onSalaryChange = (val: string) => {
   if (!val) {
@@ -180,7 +225,51 @@ const goDetail = (id: number) => {
   router.push(`/seeker/jobs/${id}`)
 }
 
-onMounted(fetchList)
+// ===== 浏览历史 =====
+const historyVisible = ref(false)
+const history = ref<any[]>([])
+
+const loadHistory = () => {
+  try {
+    history.value = JSON.parse(localStorage.getItem('browse_history') || '[]')
+  } catch {
+    history.value = []
+  }
+}
+
+const clearHistory = async () => {
+  try {
+    await ElMessageBox.confirm('确定要清空所有浏览记录吗？', '提示', {
+      type: 'warning',
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+    })
+    localStorage.removeItem('browse_history')
+    history.value = []
+    ElMessage.success('已清空浏览记录')
+  } catch {}
+}
+
+const formatBrowsedTime = (iso: string) => {
+  if (!iso) return ''
+  const d = new Date(iso)
+  const now = new Date()
+  const diff = now.getTime() - d.getTime()
+  const minutes = Math.floor(diff / 60000)
+  const hours = Math.floor(diff / 3600000)
+  const days = Math.floor(diff / 86400000)
+  if (minutes < 1) return '刚刚'
+  if (minutes < 60) return `${minutes}分钟前`
+  if (hours < 24) return `${hours}小时前`
+  if (days < 7) return `${days}天前`
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getMonth() + 1}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+onMounted(() => {
+  fetchList()
+  loadHistory()
+})
 </script>
 
 <style scoped>
@@ -200,6 +289,17 @@ onMounted(fetchList)
 .job-meta { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
 .job-desc { font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
 .job-footer { margin-top: 12px; padding-top: 10px; border-top: 1px solid #f5f5f5; display: flex; justify-content: flex-end; }
+
+/* 浏览历史弹窗 */
+.history-empty { padding: 20px 0; }
+.history-dialog-list { display: flex; flex-direction: column; gap: 8px; max-height: 400px; overflow-y: auto; }
+.history-item { padding: 12px 14px; border-radius: 8px; cursor: pointer; transition: background 0.2s; border: 1px solid #f0f0f0; }
+.history-item:hover { background: #f5f7fa; border-color: #1677ff; }
+.history-item-main { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.history-item-title { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.history-item-salary { font-size: 14px; font-weight: 700; color: #ff6b35; }
+.history-item-info { display: flex; align-items: center; gap: 2px; font-size: 12px; color: #999; }
+.history-item-time { color: #bbb; }
 
 @media (max-width: 768px) {
   .job-card { margin: 0; }

@@ -116,7 +116,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Download } from '@element-plus/icons-vue'
 import { adminApi } from '@/api/admin'
@@ -126,6 +126,19 @@ const loading = ref(false)
 const exporting = ref(false)
 const searchUsername = ref('')
 const searchPhone = ref('')
+let debounceTimer: ReturnType<typeof setTimeout> | null = null
+watch(searchUsername, () => {
+  if (debounceTimer) clearTimeout(debounceTimer)
+  debounceTimer = setTimeout(() => {
+    fetchList()
+  }, 300)
+})
+watch(searchPhone, () => {
+  if (debounceTimer) clearTimeout(debounceTimer)
+  debounceTimer = setTimeout(() => {
+    fetchList()
+  }, 300)
+})
 const roleFilter = ref('')
 const statusFilter = ref<number | ''>('')
 const page = ref(1)

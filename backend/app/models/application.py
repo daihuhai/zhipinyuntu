@@ -25,6 +25,7 @@ class JobApplication(Base):
     cover_letter: Mapped[str | None] = mapped_column(Text, nullable=True, comment="求职信")
 
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), comment="状态最后更新时间")
 
     # 关系 (不使用 back_populates, 避免修改已有模型)
     resume = relationship("Resume")

@@ -10,7 +10,8 @@
           <el-button type="primary" :icon="Plus" @click="$router.push('/seeker/resume/upload')">上传新简历</el-button>
         </div>
       </template>
-      <el-table :data="list" v-loading="loading" stripe>
+      <SkeletonTable v-if="loading && !list.length" :count="6" :cols="4" />
+      <el-table v-if="!(loading && !list.length)" :data="list" stripe>
         <el-table-column prop="name" label="姓名" width="100" />
         <el-table-column prop="education" label="学历" width="80" />
         <el-table-column prop="school" label="学校" width="160" />
@@ -62,6 +63,66 @@
             <div class="info-row"><span class="info-label">所在城市</span><span class="info-value">{{ currentDetail.current_city || '-' }}</span></div>
             <div class="info-row"><span class="info-label">电话</span><span class="info-value">{{ currentDetail.phone || '-' }}</span></div>
             <div class="info-row"><span class="info-label">邮箱</span><span class="info-value">{{ currentDetail.email || '-' }}</span></div>
+          </div>
+
+          <!-- 竞争力分析 (紧跟基本信息, 突出展示) -->
+          <div class="compete-card">
+            <div class="compete-card-header">
+              <span class="compete-card-title">
+                <el-icon><TrendCharts /></el-icon>
+                竞争力分析
+              </span>
+              <el-button
+                type="primary"
+                size="small"
+                :icon="TrendCharts"
+                :loading="competeLoading"
+                @click="handleCompete"
+              >
+                {{ competeLoading ? '分析中...' : '开始分析' }}
+              </el-button>
+            </div>
+
+            <div v-if="competeResult" class="compete-result">
+              <!-- 雷达图 + 概要 -->
+              <div class="compete-top">
+                <div ref="radarChartRef" class="radar-chart"></div>
+                <div class="compete-summary">
+                  <div v-if="competeResult.peer_count" class="peer-badge">
+                    <el-tag type="info" size="small" effect="plain">参考样本: {{ competeResult.peer_count }} 位同岗位候选人</el-tag>
+                  </div>
+                  <div class="dim-list">
+                    <div v-for="dim in competeResult.dimensions" :key="dim.name" class="dim-item">
+                      <div class="dim-header">
+                        <span class="dim-name">{{ dim.name }}</span>
+                        <span class="dim-pct" :style="{ color: pctColor(dim.percentile) }">
+                          {{ dim.percentile > 0 ? 'TOP ' + (100 - dim.percentile).toFixed(0) + '%' : '暂无' }}
+                        </span>
+                      </div>
+                      <el-progress
+                        :percentage="dim.percentile"
+                        :color="pctColor(dim.percentile)"
+                        :stroke-width="6"
+                        :show-text="false"
+                      />
+                      <div class="dim-desc">{{ dim.desc }}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 提升建议 -->
+              <div v-if="competeResult.suggestions?.length" class="suggestion-list">
+                <div class="suggestion-title">
+                  <el-icon><Promotion /></el-icon>
+                  提升建议
+                </div>
+                <div v-for="(s, i) in competeResult.suggestions" :key="i" class="suggestion-card">
+                  <span class="suggestion-dot">{{ i + 1 }}</span>
+                  <span>{{ s }}</span>
+                </div>
+              </div>
+            </div>
           </div>
 
           <!-- 工作经历 -->
@@ -126,10 +187,12 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Document } from '@element-plus/icons-vue'
+import { Plus, Document, TrendCharts, Promotion } from '@element-plus/icons-vue'
+import * as echarts from 'echarts'
 import { resumeApi } from '@/api/resume'
+import SkeletonTable from '@/components/SkeletonTable.vue'
 
 const list = ref<any[]>([])
 const loading = ref(false)
@@ -138,6 +201,12 @@ const loading = ref(false)
 const drawerVisible = ref(false)
 const detailLoading = ref(false)
 const currentDetail = ref<any>(null)
+
+// 竞争力分析
+const competeLoading = ref(false)
+const competeResult = ref<any>(null)
+const radarChartRef = ref<HTMLElement | null>(null)
+let radarChart: echarts.ECharts | null = null
 
 const fetchList = async () => {
   loading.value = true
@@ -153,6 +222,8 @@ const showDetail = async (row: any) => {
   drawerVisible.value = true
   detailLoading.value = true
   currentDetail.value = null
+  competeResult.value = null
+  if (radarChart) { radarChart.dispose(); radarChart = null }
   try {
     const res: any = await resumeApi.detail(row.id)
     currentDetail.value = res.data || null
@@ -176,6 +247,60 @@ const viewOriginalFile = async () => {
   } catch (e: any) {
     ElMessage.error(e?.message || '获取文件失败')
   }
+}
+
+// 竞争力分析
+const handleCompete = async () => {
+  if (!currentDetail.value?.id) return
+  competeLoading.value = true
+  competeResult.value = null
+  try {
+    const res: any = await resumeApi.competitiveness(currentDetail.value.id)
+    competeResult.value = res.data || null
+    // 渲染雷达图
+    nextTick(() => renderRadar())
+  } catch (e: any) {
+    ElMessage.error(e?.message || '竞争力分析失败')
+  } finally {
+    competeLoading.value = false
+  }
+}
+
+const renderRadar = () => {
+  if (!radarChartRef.value || !competeResult.value) return
+  if (radarChart) radarChart.dispose()
+  radarChart = echarts.init(radarChartRef.value)
+  const { indicators, values } = competeResult.value.radar
+  radarChart.setOption({
+    radar: {
+      indicator: indicators,
+      shape: 'polygon',
+      radius: '65%',
+      axisName: { color: '#666', fontSize: 12 },
+      splitArea: { areaStyle: { color: ['#fafafa', '#f0f5ff'] } },
+      splitLine: { lineStyle: { color: '#e0e0e0' } },
+      axisLine: { lineStyle: { color: '#d9d9d9' } },
+    },
+    series: [{
+      type: 'radar',
+      data: [{
+        value: values,
+        name: '我的竞争力',
+        areaStyle: { color: 'rgba(22, 119, 255, 0.2)' },
+        lineStyle: { color: '#1677ff', width: 2 },
+        itemStyle: { color: '#1677ff' },
+        symbolSize: 5,
+      }],
+    }],
+  })
+}
+
+// 百分位颜色
+const pctColor = (pct: number) => {
+  if (pct >= 80) return '#52c41a'
+  if (pct >= 60) return '#1677ff'
+  if (pct >= 40) return '#faad14'
+  return '#ff4d4f'
 }
 
 const previewFile = async (row: any) => {
@@ -247,4 +372,54 @@ onMounted(fetchList)
 }
 .skills-row { display: flex; flex-wrap: wrap; gap: 6px; }
 .file-section { margin-top: 24px; text-align: center; padding-top: 16px; border-top: 1px solid #f0f0f0; }
+
+/* 竞争力分析面板 */
+.compete-card {
+  margin-top: 20px;
+  background: linear-gradient(135deg, #f0f5ff 0%, #fafafa 100%);
+  border: 1px solid #d6e4ff;
+  border-radius: 12px;
+  padding: 16px;
+  overflow: hidden;
+}
+.compete-card-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 14px;
+}
+.compete-card-title {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 15px; font-weight: 600; color: #1677ff;
+}
+.compete-card-title .el-icon { font-size: 18px; }
+.compete-result { text-align: left; }
+.compete-top {
+  display: flex; gap: 16px; align-items: flex-start;
+  flex-wrap: wrap;
+}
+.radar-chart { width: 240px; height: 240px; flex-shrink: 0; }
+.compete-summary { flex: 1; min-width: 200px; }
+.peer-badge { margin-bottom: 10px; }
+.dim-list { display: flex; flex-direction: column; gap: 10px; }
+.dim-item { background: #fff; border-radius: 6px; padding: 8px 12px; }
+.dim-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.dim-name { font-size: 12px; font-weight: 600; color: #555; }
+.dim-pct { font-size: 13px; font-weight: 700; }
+.dim-desc { font-size: 11px; color: #999; margin-top: 4px; line-height: 1.3; }
+
+.suggestion-list { margin-top: 16px; padding-top: 14px; border-top: 1px dashed #d6e4ff; }
+.suggestion-title {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 14px; font-weight: 600; color: #333; margin-bottom: 10px;
+}
+.suggestion-title .el-icon { color: #1677ff; }
+.suggestion-card {
+  display: flex; align-items: flex-start; gap: 10px;
+  background: #fff; border-radius: 8px; padding: 10px 12px;
+  margin-bottom: 8px; font-size: 13px; color: #333; line-height: 1.5;
+}
+.suggestion-dot {
+  flex-shrink: 0; width: 20px; height: 20px; border-radius: 50%;
+  background: #1677ff; color: #fff; font-size: 11px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
 </style>

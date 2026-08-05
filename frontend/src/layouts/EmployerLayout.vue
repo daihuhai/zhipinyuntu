@@ -4,23 +4,26 @@ import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { messageApi } from '@/api/message'
 import { vipApi } from '@/api/vip'
+import { useRealtime } from '@/composables/useRealtime'
 
 const router = useRouter()
 const userStore = useUserStore()
+const realtime = useRealtime()
 const collapsed = ref(false)
 const unreadCount = ref(0)
 const isVip = ref(false)
 let pollTimer: ReturnType<typeof setInterval> | null = null
+let offMsg: (() => void) | null = null
 
 const menuItems = [
-  { index: '/employer/dashboard', icon: 'Odometer', title: '仪表盘' },
-  { index: '/employer/job/create', icon: 'EditPen', title: '发布职位' },
-  { index: '/employer/job/list', icon: 'Briefcase', title: '职位列表' },
-  { index: '/employer/candidates', icon: 'User', title: '候选人推荐' },
-  { index: '/employer/applications', icon: 'Tickets', title: '投递管理' },
-  { index: '/employer/feedback', icon: 'ChatLineSquare', title: '意见反馈' },
-  { index: '/employer/messages', icon: 'ChatDotRound', title: '消息', badge: true },
-  { index: '/employer/profile', icon: 'Setting', title: '企业设置' },
+  { index: '/employer/dashboard', icon: 'Odometer', title: '仪表盘', guide: '仪表盘' },
+  { index: '/employer/job/create', icon: 'EditPen', title: '发布职位', guide: '发布职位' },
+  { index: '/employer/job/list', icon: 'Briefcase', title: '职位列表', guide: '职位列表' },
+  { index: '/employer/candidates', icon: 'User', title: '候选人推荐', guide: '候选人推荐' },
+  { index: '/employer/applications', icon: 'Tickets', title: '投递管理', guide: '投递管理' },
+  { index: '/employer/feedback', icon: 'ChatLineSquare', title: '意见反馈', guide: '意见反馈' },
+  { index: '/employer/messages', icon: 'ChatDotRound', title: '消息', badge: true, guide: '消息' },
+  { index: '/employer/profile', icon: 'Setting', title: '企业设置', guide: '企业设置' },
 ]
 
 const fetchUnread = async () => {
@@ -48,9 +51,16 @@ const handleLogout = () => { userStore.logout(); router.push('/login') }
 onMounted(() => {
   fetchUnread()
   fetchVipStatus()
+  // 建立 WebSocket 实时推送, 收到新消息即刷新未读角标
+  if (userStore.token) realtime.connect(userStore.token)
+  offMsg = realtime.onMessage(() => fetchUnread())
+  // 保留轮询兜底 (WebSocket 断开时也能获取)
   pollTimer = setInterval(fetchUnread, 15000)
 })
-onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
+onUnmounted(() => {
+  if (pollTimer) clearInterval(pollTimer)
+  if (offMsg) offMsg()
+})
 </script>
 
 <template>
@@ -61,7 +71,7 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
         <span v-if="!collapsed">智聘云图</span>
       </div>
       <el-menu :default-active="$route.path" :collapse="collapsed" background-color="#001529" text-color="#ffffffb3" active-text-color="#fff" @select="handleSelect">
-        <el-menu-item v-for="item in menuItems" :key="item.index" :index="item.index">
+        <el-menu-item v-for="item in menuItems" :key="item.index" :index="item.index" :data-guide="item.guide || null">
           <el-icon><component :is="item.icon" /></el-icon>
           <template #title>
             <el-badge v-if="item.badge" :value="unreadCount" :hidden="!unreadCount" :max="99" class="menu-badge">

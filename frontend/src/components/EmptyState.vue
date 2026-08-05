@@ -1,56 +1,79 @@
 <!--
-  空状态组件 - 统一空数据展示
-  含插图 + 引导文案 + 操作按钮
+  EmptyState - 统一空状态组件
+  提供插画 + 标题 + 描述 + 引导 CTA 按钮, 替代简单的 el-empty
 -->
 <template>
   <div class="empty-state">
-    <el-empty :description="description" :image-size="imageSize">
-      <template v-if="actionText" #default>
-        <el-button type="primary" :icon="actionIcon" @click="$emit('action')">
-          {{ actionText }}
-        </el-button>
-      </template>
-    </el-empty>
+    <div class="empty-icon" :style="{ background: iconBg }">
+      <el-icon :size="42"><component :is="icon" /></el-icon>
+    </div>
+    <div class="empty-title">{{ title }}</div>
+    <div v-if="description" class="empty-desc">{{ description }}</div>
+    <div v-if="actionText" class="empty-action">
+      <el-button type="primary" :icon="actionIcon" @click="$emit('action')">
+        {{ actionText }}
+      </el-button>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Upload, Plus, Search, Document } from '@element-plus/icons-vue'
+import { Box, Briefcase, Upload, Tickets, ChatDotRound, Star, Document } from '@element-plus/icons-vue'
 
-const props = defineProps<{
-  type?: 'resume' | 'job' | 'application' | 'search' | 'default'
+const props = withDefaults(defineProps<{
+  title?: string
   description?: string
-  imageSize?: number
   actionText?: string
   actionIcon?: any
-}>()
+  icon?: string
+}>(), {
+  title: '暂无数据',
+  description: '',
+  actionText: '',
+  actionIcon: undefined,
+  icon: 'box',
+})
 
-defineEmits<{
-  (e: 'action'): void
-}>()
+defineEmits<{ (e: 'action'): void }>()
 
-const defaultConfig = {
-  resume: { desc: '还没有简历, 上传一份让灵犀帮你解析', action: '去上传简历', icon: Upload },
-  job: { desc: '还没有发布职位, 快来招募人才', action: '去发布职位', icon: Plus },
-  application: { desc: '暂无投递记录', action: '去看看职位', icon: Search },
-  search: { desc: '暂无符合条件的结果, 试试调整筛选', action: '', icon: Search },
-  default: { desc: '暂无数据', action: '', icon: Document },
+const iconMap: Record<string, any> = {
+  box: Box,
+  briefcase: Briefcase,
+  upload: Upload,
+  tickets: Tickets,
+  chat: ChatDotRound,
+  star: Star,
+  document: Document,
 }
-
-const config = computed(() => defaultConfig[props.type || 'default'])
-const description = computed(() => props.description || config.value.desc)
-const actionText = computed(() => props.actionText !== undefined ? props.actionText : config.value.action)
-const actionIcon = computed(() => props.actionIcon || config.value.icon)
-const imageSize = computed(() => props.imageSize || 120)
+const icon = computed(() => iconMap[props.icon] || Box)
+const iconBg = computed(() => {
+  const map: Record<string, string> = {
+    box: 'linear-gradient(135deg,#e6f4ff,#1677ff)',
+    briefcase: 'linear-gradient(135deg,#fff7e6,#faad14)',
+    upload: 'linear-gradient(135deg,#f6ffed,#52c41a)',
+    tickets: 'linear-gradient(135deg,#f9f0ff,#722ed1)',
+    chat: 'linear-gradient(135deg,#e6fffb,#13c2c2)',
+    star: 'linear-gradient(135deg,#fffbe6,#fadb14)',
+    document: 'linear-gradient(135deg,#e6f4ff,#1677ff)',
+  }
+  return map[props.icon] || map.box
+})
 </script>
 
 <style scoped>
 .empty-state {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  padding: 40px 20px;
-  min-height: 200px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 48px 20px; text-align: center;
+  grid-column: 1 / -1;
 }
+.empty-icon {
+  width: 88px; height: 88px; border-radius: 24px;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; margin-bottom: 18px;
+  box-shadow: 0 8px 20px rgba(22, 119, 255, 0.15);
+}
+.empty-title { font-size: 16px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; }
+.empty-desc { font-size: 13px; color: var(--text-secondary); max-width: 360px; line-height: 1.6; margin-bottom: 18px; }
+.empty-action { margin-top: 4px; }
 </style>

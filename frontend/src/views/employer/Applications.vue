@@ -50,6 +50,7 @@
         </el-select>
         <el-tag v-if="!loading" type="info" size="small">{{ countText }}</el-tag>
         <el-button :icon="Refresh" :loading="loading" @click="fetchApplications">刷新</el-button>
+        <el-button :icon="Download" plain @click="exportExcel">导出Excel</el-button>
 
         <!-- 批量操作区 -->
         <div v-if="selectedIds.length" class="batch-bar">
@@ -67,9 +68,10 @@
       </div>
     </el-card>
 
-    <el-card shadow="never" class="list-card" v-loading="loading">
+    <el-card shadow="never" class="list-card">
+      <SkeletonList v-if="loading && !list.length" :count="4" />
       <el-empty
-        v-if="!loading && !list.length"
+        v-else-if="!loading && !list.length"
         description="暂无投递记录"
       />
       <el-table v-else :data="filteredList" row-key="id" stripe :empty-text="filterEmptyText" @selection-change="onSelectionChange">
@@ -141,6 +143,27 @@
       :destroy-on-close="true"
     >
       <template v-if="currentDetail">
+        <!-- 视图切换: 解析视图 / 原文件预览 (原文件预览可直接点击, 自动加载) -->
+        <el-radio-group v-model="resumeViewMode" class="view-switch" size="small">
+          <el-radio-button label="parsed">解析视图</el-radio-button>
+          <el-radio-button label="file">原文件预览</el-radio-button>
+        </el-radio-group>
+
+        <!-- 原文件在线预览 -->
+        <div v-if="resumeViewMode === 'file'" class="file-preview">
+          <div v-if="fileLoading" v-loading="true" class="file-loading">正在加载原文件...</div>
+          <iframe
+            v-else-if="filePreviewUrl"
+            :src="filePreviewUrl"
+            class="file-iframe"
+            frameborder="0"
+          />
+          <el-empty v-else description="原文件无法预览或加载失败" :image-size="80">
+            <el-button type="primary" @click="loadFileUrl">重新加载</el-button>
+          </el-empty>
+        </div>
+
+        <template v-else>
         <!-- 匹配度卡片 -->
         <div class="match-card">
           <div class="match-score-ring" :style="ringStyle">
@@ -304,6 +327,60 @@
           <el-button type="warning" :icon="Document" plain @click="viewOriginalFile">
             查看原文件
           </el-button>
+          <el-button
+            type="success"
+            :icon="MagicStick"
+            plain
+            :loading="generatingQuestions"
+            @click="handleGenerateQuestions"
+          >灵犀AI生成面试题</el-button>
+        </div>
+        </template>
+
+        <!-- 灵犀AI面试题面板 -->
+        <div v-if="questionResult" class="question-panel">
+          <div class="question-panel-title">
+            <el-icon><MagicStick /></el-icon>
+            <span>灵犀AI面试题</span>
+          </div>
+          <!-- 候选人简评 -->
+          <div v-if="questionResult.candidate_brief" class="candidate-brief">
+            {{ questionResult.candidate_brief }}
+          </div>
+          <!-- 问题列表 -->
+          <div
+            v-for="(q, i) in questionResult.questions"
+            :key="i"
+            class="question-card"
+            :style="{ borderLeftColor: categoryColorMap[q.category] || '#1677ff' }"
+          >
+            <div class="question-meta">
+              <el-tag
+                size="small"
+                effect="light"
+                :style="{
+                  color: categoryColorMap[q.category] || '#1677ff',
+                  borderColor: categoryColorMap[q.category] || '#1677ff',
+                  backgroundColor: 'transparent',
+                }"
+              >{{ q.category }}</el-tag>
+              <el-tag v-if="q.difficulty" size="small" :type="difficultyTagType(q.difficulty)" effect="light">
+                {{ q.difficulty }}
+              </el-tag>
+            </div>
+            <div class="question-content">{{ q.question }}</div>
+            <div v-if="q.focus" class="question-focus">考察要点: {{ q.focus }}</div>
+          </div>
+          <!-- 复制全部 + 导出PDF 按钮 -->
+          <div class="question-footer">
+            <el-button type="primary" plain size="small" @click="copyAllQuestions">复制全部</el-button>
+            <el-button type="success" plain size="small" :icon="Download" :loading="pdfExporting" @click="exportQuestionsPDF">导出PDF</el-button>
+          </div>
+          <!-- PDF导出进度条 -->
+          <div v-if="pdfExporting" class="pdf-progress">
+            <el-progress :percentage="pdfProgress" :stroke-width="6" :show-text="true" status="success" />
+            <span class="pdf-progress-text">{{ pdfProgressText }}</span>
+          </div>
         </div>
       </template>
     </el-drawer>
@@ -311,13 +388,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ChatDotRound, Document, Refresh, View, WarningFilled } from '@element-plus/icons-vue'
+import { ChatDotRound, Document, MagicStick, Refresh, View, WarningFilled, Download } from '@element-plus/icons-vue'
 import { jobApi } from '@/api/job'
 import { applicationApi } from '@/api/application'
 import { resumeApi } from '@/api/resume'
+import { interviewApi } from '@/api/interview'
+import { exportToExcel } from '@/utils/exportExcel'
+import SkeletonList from '@/components/SkeletonList.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -375,6 +455,36 @@ const filterEmptyText = computed(() =>
   hasFilter.value ? '没有符合条件的候选人, 试试调整筛选条件' : '暂无投递记录'
 )
 
+// 导出当前筛选结果到 Excel
+const exportExcel = async () => {
+  const rows = filteredList.value
+  if (!rows.length) {
+    ElMessage.warning('当前没有可导出的数据')
+    return
+  }
+  try {
+    await exportToExcel(
+      [
+        { title: '候选人', key: 'name', formatter: (r: any) => r.resume?.name || '匿名' },
+        { title: '学历', key: 'edu', formatter: (r: any) => r.resume?.education || '-' },
+        { title: '学校', key: 'school', formatter: (r: any) => r.resume?.school || '-' },
+        { title: '工作年限', key: 'years', formatter: (r: any) => r.resume?.work_years ?? 0 },
+        { title: '应聘职位', key: 'job', formatter: (r: any) => r.job_title || '-' },
+        { title: '匹配度', key: 'match', formatter: (r: any) => `${r.match_analysis?.match_score ?? 0}%` },
+        { title: '投递时间', key: 'time', formatter: (r: any) => formatDate(r.created_at) },
+        { title: '状态', key: 'status', formatter: (r: any) => statusText(r.status) },
+      ],
+      rows,
+      `投递记录-${new Date().toISOString().slice(0, 10)}`,
+      '投递记录',
+      '智聘云图 · 投递记录报表',
+    )
+    ElMessage.success('导出成功')
+  } catch (e: any) {
+    ElMessage.error(e?.message || '导出失败, 请重试')
+  }
+}
+
 // 批量操作
 const selectedIds = ref<number[]>([])
 const batchStatus = ref<number | null>(null)
@@ -382,6 +492,28 @@ const batchStatus = ref<number | null>(null)
 // 简历预览抽屉
 const drawerVisible = ref(false)
 const currentDetail = ref<any>(null)
+const resumeViewMode = ref<'parsed' | 'file'>('parsed')
+const filePreviewUrl = ref('')
+const fileLoading = ref(false)
+
+// 灵犀AI生成面试题
+const generatingQuestions = ref(false)
+const questionResult = ref<any>(null)
+
+// 面试问题类别颜色映射
+const categoryColorMap: Record<string, string> = {
+  '技术深度': '#1677ff',
+  '项目追问': '#52c41a',
+  '行为面试': '#faad14',
+  '开放思考': '#722ed1',
+}
+// 难度标签类型映射
+const difficultyTagType = (d?: string): any => {
+  if (d === '简单') return 'info'
+  if (d === '中等') return 'warning'
+  if (d === '较难') return 'danger'
+  return 'info'
+}
 
 // 匹配度环形样式
 const ringStyle = computed(() => {
@@ -468,6 +600,9 @@ const doBatchUpdate = async () => {
 // 简历预览
 const showDetail = (row: any) => {
   currentDetail.value = row
+  // 每次打开抽屉重置为解析视图, 清空上次的原文件预览, 避免残留上一候选人状态
+  resumeViewMode.value = 'parsed'
+  filePreviewUrl.value = ''
   drawerVisible.value = true
 }
 
@@ -482,23 +617,226 @@ const contactCandidate = () => {
   router.push({ path: '/employer/messages', query: { user_id: userId } })
 }
 
-// 查看简历原文件
-const viewOriginalFile = async () => {
+// 加载原文件 URL (供"原文件预览" tab 使用)
+const loadFileUrl = async () => {
   const resumeId = currentDetail.value?.resume?.id
   if (!resumeId) {
     ElMessage.warning('无法获取简历信息')
     return
   }
+  fileLoading.value = true
   try {
     const res: any = await resumeApi.getFile(resumeId)
     const url = res.data?.doc_url
     if (url) {
-      window.open(url, '_blank')
+      filePreviewUrl.value = url
     } else {
       ElMessage.warning('简历文件路径不存在')
     }
   } catch (e: any) {
     ElMessage.error(e?.message || '获取文件失败')
+  } finally {
+    fileLoading.value = false
+  }
+}
+
+// 查看原文件: 切换到原文件预览 tab (若未加载则自动加载)
+const viewOriginalFile = () => {
+  resumeViewMode.value = 'file'
+}
+
+// 切换到"原文件预览" tab 时, 若尚未加载文件则自动加载
+watch(resumeViewMode, (mode) => {
+  if (mode === 'file' && !filePreviewUrl.value && !fileLoading.value) {
+    loadFileUrl()
+  }
+})
+
+// 灵犀AI生成面试题
+const handleGenerateQuestions = async () => {
+  const applicationId = currentDetail.value?.id
+  if (!applicationId) {
+    ElMessage.warning('无法获取投递记录信息')
+    return
+  }
+  generatingQuestions.value = true
+  questionResult.value = null
+  try {
+    const res: any = await interviewApi.generateQuestions(applicationId)
+    if (res.data) {
+      questionResult.value = res.data
+    } else {
+      ElMessage.warning('未获取到面试问题')
+    }
+  } catch (e: any) {
+    ElMessage.error(e?.message || '生成面试题失败')
+  } finally {
+    generatingQuestions.value = false
+  }
+}
+
+// 复制全部面试题到剪贴板
+const copyAllQuestions = async () => {
+  if (!questionResult.value?.questions?.length) {
+    ElMessage.warning('暂无可复制的问题')
+    return
+  }
+  const text = questionResult.value.questions
+    .map(
+      (q: any, i: number) =>
+        `${i + 1}. 【${q.category} | ${q.difficulty}】${q.question}\n考察要点: ${q.focus || '-'}`
+    )
+    .join('\n\n')
+  try {
+    await navigator.clipboard.writeText(text)
+    ElMessage.success('已复制全部面试题到剪贴板')
+  } catch (e: any) {
+    ElMessage.error('复制失败, 请手动选择文本复制')
+  }
+}
+
+// 导出面试题 PDF (jspdf + html2canvas 逐块渲染, 智能分页不截断)
+const pdfExporting = ref(false)
+const pdfProgress = ref(0)
+const pdfProgressText = ref('')
+
+const exportQuestionsPDF = async () => {
+  if (!questionResult.value?.questions?.length) {
+    ElMessage.warning('暂无可导出的面试题')
+    return
+  }
+  pdfExporting.value = true
+  pdfProgress.value = 0
+  pdfProgressText.value = '正在加载组件...'
+
+  try {
+    const jsPDF = (await import('jspdf')).default
+    const html2canvas = (await import('html2canvas')).default
+
+    pdfProgress.value = 10
+    pdfProgressText.value = '正在渲染内容...'
+
+    const r = questionResult.value
+    const candidateName = currentDetail.value?.resume?.name || currentDetail.value?.applicant_name || '候选人'
+    const jobTitle = currentDetail.value?.job_title || ''
+    const dateStr = new Date().toLocaleDateString('zh-CN')
+
+    // 离屏容器
+    const offscreen = document.createElement('div')
+    offscreen.style.cssText = 'position:fixed;left:-9999px;top:0;width:750px;background:#fff;'
+    document.body.appendChild(offscreen)
+
+    // 辅助: 把一段 HTML 渲染成 canvas → JPEG dataURL
+    const renderBlock = async (innerHTML: string): Promise<{ data: string; h: number }> => {
+      offscreen.innerHTML = innerHTML
+      const canvas = await html2canvas(offscreen, { scale: 2, backgroundColor: '#fff', useCORS: true })
+      return { data: canvas.toDataURL('image/jpeg', 0.95), h: canvas.height }
+    }
+
+    const A4_W = 210 // mm
+    const A4_H = 297
+    const MARGIN = 10 // 页边距 mm
+
+    const pdf = new jsPDF('p', 'mm', 'a4')
+    let cursorY = MARGIN // 当前页 Y 坐标 (mm)
+
+    // 计算总块数用于进度
+    const totalBlocks = 1 + (r.candidate_brief ? 1 : 0) + r.questions.length + 1 // 标题 + 简评 + 问题 + 页脚
+    let doneBlocks = 0
+
+    const updateProgress = (label: string) => {
+      doneBlocks++
+      pdfProgress.value = Math.round(10 + (doneBlocks / totalBlocks) * 85)
+      pdfProgressText.value = label
+    }
+
+    // 1. 标题块
+    const titleBlock = `
+      <div style="padding:24px 28px;text-align:center;border-bottom:2px solid #1677ff;font-family:'Microsoft YaHei','PingFang SC',sans-serif;">
+        <div style="font-size:22px;font-weight:700;color:#1677ff;">灵犀AI面试题</div>
+        <div style="font-size:12px;color:#888;margin-top:6px;">候选人: ${candidateName}　|　职位: ${jobTitle}　|　生成日期: ${dateStr}</div>
+      </div>
+    `
+    {
+      const { data, h } = await renderBlock(titleBlock)
+      const blockHmm = h / (2 * (750 / A4_W))
+      pdf.addImage(data, 'JPEG', MARGIN, cursorY, A4_W - 2 * MARGIN, blockHmm)
+      cursorY += blockHmm + 4
+      updateProgress('标题渲染完成')
+    }
+
+    // 2. 候选人简评
+    if (r.candidate_brief) {
+      const briefBlock = `
+        <div style="padding:28px;background:#f0f5ff;font-family:'Microsoft YaHei','PingFang SC',sans-serif;">
+          <div style="font-size:13px;line-height:1.6;color:#555;">候选人简评: ${r.candidate_brief}</div>
+        </div>
+      `
+      const { data, h } = await renderBlock(briefBlock)
+      const blockHmm = h / (2 * (750 / A4_W))
+      if (cursorY + blockHmm > A4_H - MARGIN) {
+        pdf.addPage()
+        cursorY = MARGIN
+      }
+      pdf.addImage(data, 'JPEG', MARGIN, cursorY, A4_W - 2 * MARGIN, blockHmm)
+      cursorY += blockHmm + 4
+      updateProgress('简评渲染完成')
+    }
+
+    // 3. 逐个问题渲染 (每题一个块, 不被分页截断)
+    for (let i = 0; i < r.questions.length; i++) {
+      const q = r.questions[i]
+      const qBlock = `
+        <div style="padding:28px;font-family:'Microsoft YaHei','PingFang SC',sans-serif;">
+          <div style="padding:12px 14px;border-left:3px solid ${categoryColorMap[q.category] || '#1677ff'};background:#fafafa;border-radius:4px;">
+            <div style="display:flex;gap:8px;margin-bottom:6px;">
+              <span style="font-size:12px;font-weight:600;color:${categoryColorMap[q.category] || '#1677ff'};">${q.category}</span>
+              <span style="font-size:12px;color:#999;">${q.difficulty || ''}</span>
+            </div>
+            <div style="font-size:14px;line-height:1.6;color:#333;">${i + 1}. ${q.question}</div>
+            ${q.focus ? `<div style="font-size:12px;color:#888;margin-top:6px;line-height:1.5;">考察要点: ${q.focus}</div>` : ''}
+          </div>
+        </div>
+      `
+      const { data, h } = await renderBlock(qBlock)
+      const blockHmm = h / (2 * (750 / A4_W))
+      if (cursorY + blockHmm > A4_H - MARGIN) {
+        pdf.addPage()
+        cursorY = MARGIN
+      }
+      pdf.addImage(data, 'JPEG', MARGIN, cursorY, A4_W - 2 * MARGIN, blockHmm)
+      cursorY += blockHmm + 2
+      updateProgress(`正在渲染面试题 (${i + 1}/${r.questions.length})`)
+    }
+
+    // 4. 页脚
+    const footerBlock = `
+      <div style="padding:16px 28px;text-align:center;font-family:'Microsoft YaHei','PingFang SC',sans-serif;">
+        <div style="font-size:11px;color:#ccc;">由智聘云图灵犀AI智能生成</div>
+      </div>
+    `
+    {
+      const { data, h } = await renderBlock(footerBlock)
+      const blockHmm = h / (2 * (750 / A4_W))
+      if (cursorY + blockHmm > A4_H - MARGIN) {
+        pdf.addPage()
+        cursorY = MARGIN
+      }
+      pdf.addImage(data, 'JPEG', MARGIN, cursorY, A4_W - 2 * MARGIN, blockHmm)
+      updateProgress('页脚渲染完成')
+    }
+
+    pdfProgress.value = 98
+    pdfProgressText.value = '正在生成PDF文件...'
+    pdf.save(`面试题-${candidateName}-${dateStr}.pdf`)
+    document.body.removeChild(offscreen)
+    pdfProgress.value = 100
+    pdfProgressText.value = '导出完成'
+    ElMessage.success('PDF已下载')
+    setTimeout(() => { pdfExporting.value = false }, 800)
+  } catch (e) {
+    ElMessage.error('导出失败, 请重试')
+    pdfExporting.value = false
   }
 }
 
@@ -553,6 +891,10 @@ onMounted(fetchJobs)
 .batch-count { font-size: 13px; color: #1677ff; font-weight: 600; }
 
 /* 抽屉样式 */
+.view-switch { margin-bottom: 16px; display: flex; justify-content: center; }
+.file-preview { margin-bottom: 16px; }
+.file-loading { height: 180px; display: flex; align-items: center; justify-content: center; color: #999; font-size: 13px; }
+.file-iframe { width: 100%; height: 560px; border: 1px solid #f0f0f0; border-radius: 8px; background: #fff; }
 .match-card {
   display: flex;
   align-items: center;
@@ -631,5 +973,83 @@ onMounted(fetchJobs)
   padding-top: 16px;
   border-top: 1px solid #f0f0f0;
   text-align: center;
+}
+
+/* 灵犀AI面试题面板 */
+.question-panel {
+  margin-top: 16px;
+  padding: 16px;
+  background: #fff;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  animation: panel-fade-in 0.3s ease;
+}
+@keyframes panel-fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.question-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #52c41a;
+  margin-bottom: 12px;
+}
+.candidate-brief {
+  padding: 10px 12px;
+  background: #f6ffed;
+  border: 1px solid #b7eb8f;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #389e0d;
+  line-height: 1.6;
+  margin-bottom: 12px;
+}
+.question-card {
+  padding: 10px 12px;
+  background: #fafafa;
+  border-left: 3px solid #1677ff;
+  border-radius: 6px;
+  margin-bottom: 10px;
+}
+.question-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.question-content {
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+  line-height: 1.5;
+}
+.question-focus {
+  font-size: 12px;
+  color: #999;
+  margin-top: 4px;
+  line-height: 1.5;
+}
+.question-footer {
+  text-align: center;
+  margin-top: 8px;
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+.pdf-progress {
+  margin-top: 12px;
+  padding: 12px 16px;
+  background: #f5f7fa;
+  border-radius: 8px;
+}
+.pdf-progress-text {
+  display: block;
+  text-align: center;
+  font-size: 12px;
+  color: #888;
+  margin-top: 6px;
 }
 </style>

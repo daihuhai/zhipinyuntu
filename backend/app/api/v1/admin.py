@@ -48,11 +48,13 @@ async def dashboard(
 
 @router.get("/dashboard/trend", summary="仪表盘趋势数据 (图表)")
 async def dashboard_trend(
+    start_date: str | None = Query(None, description="开始日期 YYYY-MM-DD"),
+    end_date: str | None = Query(None, description="结束日期 YYYY-MM-DD"),
     current_user: SysUser = Depends(require_role("ROLE_ADMIN")),
     db: Session = Depends(get_db),
 ):
-    """获取仪表盘图表数据: 用户增长趋势 + 简历状态分布 + 职位状态分布 + 热门技能 Top10"""
-    data = admin_service.get_dashboard_trend(db)
+    """获取仪表盘图表数据 (支持日期范围筛选用户增长和AI解析趋势)"""
+    data = admin_service.get_dashboard_trend(db, start_date, end_date)
     return success(data=data)
 
 

@@ -20,6 +20,7 @@ export default defineConfig({
       '/api': {
         target: 'http://127.0.0.1:8001',
         changeOrigin: true,
+        ws: true, // 支持 WebSocket 实时推送
         timeout: 600000,  // 简历解析等耗时操作需 10 分钟
       },
       // 简历原文件 (PDF/DOC) 由后端 StaticFiles 挂载在 /uploads, 需代理否则 404

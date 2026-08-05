@@ -67,6 +67,8 @@ const formatTime = (iso?: string) => {
   border: 1px solid rgba(167, 139, 250, 0.2);
   border-radius: 12px;
   padding: 16px;
+  min-width: 0;
+  overflow: hidden;
 }
 .dc-panel-title {
   font-size: 14px;
@@ -103,7 +105,8 @@ const formatTime = (iso?: string) => {
 }
 .log-list {
   height: 360px;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 .log-row {
   display: flex;
@@ -114,6 +117,7 @@ const formatTime = (iso?: string) => {
   font-size: 13px;
   white-space: nowrap;
   overflow: hidden;
+  min-width: 0;
 }
 .log-time {
   color: #6b7280;
@@ -134,6 +138,8 @@ const formatTime = (iso?: string) => {
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 200px;
+  min-width: 0;
 }
 .log-ip {
   color: #6b7280;
@@ -160,5 +166,15 @@ const formatTime = (iso?: string) => {
 }
 .log-slide-move {
   transition: transform 0.5s ease;
+}
+.log-list::-webkit-scrollbar {
+  height: 4px;
+}
+.log-list::-webkit-scrollbar-thumb {
+  background: rgba(167, 139, 250, 0.3);
+  border-radius: 2px;
+}
+.log-list::-webkit-scrollbar-track {
+  background: transparent;
 }
 </style>

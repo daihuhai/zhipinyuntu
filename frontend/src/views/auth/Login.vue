@@ -53,7 +53,11 @@ const handleLogin = async () => {
         nickname: data.nickname,
         role: data.role,
         avatar_url: data.avatar_url,
+        onboard_done: data.onboard_done,
       })
+
+      // 新用户引导采用后端持久化判断 (onboard_done 字段), 仅在首次登录展示
+      // 老用户 onbord_done=1, 登录后不再展示; 无需前端 localStorage 记录
       ElMessage.success('登录成功')
       // 清除当前焦点, 避免跳转后页面被光标整体选中
       ;(document.activeElement as HTMLElement | null)?.blur()

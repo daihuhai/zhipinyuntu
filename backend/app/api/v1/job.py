@@ -19,7 +19,7 @@ import asyncio
 from app.core.deps import get_current_user, require_role
 from app.db.base import get_db
 from app.models.user import SysUser
-from app.models.job import Job
+from app.models.job import Job, JobRequirement
 from app.models.application import JobApplication
 from app.models.favorite import Favorite
 from app.schemas.common import success, fail, BizError
@@ -28,6 +28,8 @@ from app.services.job_service import job_service
 from app.services.file_service import file_service
 from app.services.doc_parser import doc_parser
 from app.services.cache_service import cache_service
+from app.ai.ark_client import ark_client
+from app.ai.prompts import build_job_generate_messages
 
 router = APIRouter(prefix="/jobs", tags=["职位"])
 
@@ -113,6 +115,30 @@ async def parse_jd_text(
         return fail(BizError.VALIDATION_ERROR, str(e))
     except Exception as e:
         return fail(BizError.PARSE_FAILED, f"JD 解析失败: {e}")
+
+
+@router.post("/generate-description", summary="灵犀AI生成职位描述", response_model=None)
+async def generate_job_description(
+    payload: dict,
+    current_user: SysUser = Depends(require_role("ROLE_EMPLOYER")),
+):
+    """根据岗位名称+级别+核心技能, 调用灵犀大模型自动生成职位描述、任职要求和加分项"""
+    title = (payload.get("title") or "").strip()
+    if not title:
+        return fail(BizError.VALIDATION_ERROR, "岗位名称不能为空")
+
+    level = (payload.get("level") or "中级").strip()
+    skills = (payload.get("skills") or "").strip()
+    extra = (payload.get("extra") or "").strip()
+
+    messages = build_job_generate_messages(title, level, skills, extra)
+    try:
+        result, gen_usage = await asyncio.to_thread(
+            ark_client.chat_json_lite, messages, temperature=0.4, max_tokens=2048
+        )
+        return success(data=result, message="职位描述生成成功")
+    except Exception as e:
+        return fail(BizError.SYSTEM_ERROR, f"生成失败: {e}")
 
 
 @router.post("", summary="创建职位 (支持 JD 解析)", response_model=None)
@@ -263,6 +289,76 @@ async def list_favorites(
         for fav, job in rows
     ]
     return success(data={"items": items, "total": len(items)})
+
+
+@router.get("/similar/{job_id}", summary="相似职位推荐", response_model=None)
+async def similar_jobs(
+    job_id: int,
+    limit: int = Query(6, ge=1, le=12),
+    current_user: SysUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """基于技能重合度 + 城市 + 薪资接近度 + 标题关键词推荐相似职位"""
+    target = db.get(Job, job_id)
+    if target is None:
+        return fail(BizError.RESOURCE_NOT_FOUND, "职位不存在")
+
+    # 目标职位技能集合
+    target_reqs = db.execute(
+        select(JobRequirement.skill_name).where(JobRequirement.job_id == job_id)
+    ).scalars().all()
+    target_skills = {s.lower() for s in target_reqs if s}
+    target_title_words = {w for w in target.title.lower().replace('-', ' ').split() if len(w) > 1}
+
+    # 候选: 同城市招聘中职位 (排除自身), 若无同城则取全部
+    cand_jobs = db.execute(
+        select(Job).where(Job.status == 1, Job.id != job_id)
+    ).scalars().all()
+
+    def score(j):
+        raw = 0.0
+        # 标题关键词重合
+        jw = {w for w in j.title.lower().replace('-', ' ').split() if len(w) > 1}
+        overlap = len(target_title_words & jw)
+        if overlap:
+            raw += min(overlap, 3) * 10
+        # 城市相同
+        if j.work_city and target.work_city and j.work_city == target.work_city:
+            raw += 20
+        # 薪资区间重叠
+        tlo, thi = target.salary_min or 0, target.salary_max or 0
+        jlo, jhi = j.salary_min or 0, j.salary_max or 0
+        if thi and jlo and tlo <= jhi and jlo <= thi:
+            raw += 15
+        # 技能重合度
+        jreqs = db.execute(
+            select(JobRequirement.skill_name).where(JobRequirement.job_id == j.id)
+        ).scalars().all()
+        jskills = {s.lower() for s in jreqs if s}
+        if jskills and target_skills:
+            inter = len(target_skills & jskills)
+            union = len(target_skills | jskills)
+            raw += (inter / union) * 30
+        return raw
+
+    scored = sorted(cand_jobs, key=score, reverse=True)[:limit]
+    items = [
+        {
+            "id": j.id,
+            "title": j.title,
+            "company": j.company,
+            "work_city": j.work_city,
+            "salary_min": j.salary_min,
+            "salary_max": j.salary_max,
+            "salary_unit": j.salary_unit,
+            "job_type": j.job_type,
+            "experience_required": j.experience_required,
+            "education_required": j.education_required,
+            "description": (j.description or "")[:120],
+        }
+        for j in scored
+    ]
+    return success(data={"items": items})
 
 
 @router.get("/{job_id}", summary="职位详情", response_model=None)

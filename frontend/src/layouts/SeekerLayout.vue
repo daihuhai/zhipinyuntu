@@ -4,25 +4,28 @@ import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { messageApi } from '@/api/message'
 import { vipApi } from '@/api/vip'
+import { useRealtime } from '@/composables/useRealtime'
 
 const router = useRouter()
 const userStore = useUserStore()
+const realtime = useRealtime()
 const collapsed = ref(false)
 const unreadCount = ref(0)
 const isVip = ref(false)
 let pollTimer: ReturnType<typeof setInterval> | null = null
+let offMsg: (() => void) | null = null
 
 const menuItems = [
-  { index: '/seeker/dashboard', icon: 'Odometer', title: '仪表盘' },
-  { index: '/seeker/resume/upload', icon: 'Upload', title: '上传简历' },
-  { index: '/seeker/resume/list', icon: 'Document', title: '我的简历' },
-  { index: '/seeker/jobs', icon: 'Briefcase', title: '职位广场' },
-  { index: '/seeker/recommend', icon: 'Position', title: '结果推荐' },
-  { index: '/seeker/graph', icon: 'Share', title: '能力图谱' },
-  { index: '/seeker/applications', icon: 'Tickets', title: '投递记录' },
-  { index: '/seeker/feedback', icon: 'ChatLineSquare', title: '意见反馈' },
-  { index: '/seeker/messages', icon: 'ChatDotRound', title: '消息', badge: true },
-  { index: '/seeker/profile', icon: 'Setting', title: '个人设置' },
+  { index: '/seeker/dashboard', icon: 'Odometer', title: '仪表盘', guide: '仪表盘' },
+  { index: '/seeker/resume/upload', icon: 'Upload', title: '上传简历', guide: '上传简历' },
+  { index: '/seeker/resume/list', icon: 'Document', title: '我的简历', guide: '我的简历' },
+  { index: '/seeker/jobs', icon: 'Briefcase', title: '职位广场', guide: '职位广场' },
+  { index: '/seeker/recommend', icon: 'Position', title: '结果推荐', guide: '结果推荐' },
+  { index: '/seeker/graph', icon: 'Share', title: '能力图谱', guide: '能力图谱' },
+  { index: '/seeker/applications', icon: 'Tickets', title: '投递记录', guide: '投递记录' },
+  { index: '/seeker/feedback', icon: 'ChatLineSquare', title: '意见反馈', guide: '意见反馈' },
+  { index: '/seeker/messages', icon: 'ChatDotRound', title: '消息', badge: true, guide: '消息' },
+  { index: '/seeker/profile', icon: 'Setting', title: '个人设置', guide: '个人设置' },
 ]
 
 const fetchUnread = async () => {
@@ -53,9 +56,16 @@ const handleLogout = () => {
 onMounted(() => {
   fetchUnread()
   fetchVipStatus()
+  // 建立 WebSocket 实时推送, 收到新消息即刷新未读角标
+  if (userStore.token) realtime.connect(userStore.token)
+  offMsg = realtime.onMessage(() => fetchUnread())
+  // 保留轮询兜底 (WebSocket 断开时也能获取)
   pollTimer = setInterval(fetchUnread, 15000)
 })
-onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
+onUnmounted(() => {
+  if (pollTimer) clearInterval(pollTimer)
+  if (offMsg) offMsg()
+})
 </script>
 
 <template>
@@ -73,7 +83,7 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
         active-text-color="#fff"
         @select="handleSelect"
       >
-        <el-menu-item v-for="item in menuItems" :key="item.index" :index="item.index">
+        <el-menu-item v-for="item in menuItems" :key="item.index" :index="item.index" :data-guide="item.guide || null">
           <el-icon><component :is="item.icon" /></el-icon>
           <template #title>
             <el-badge v-if="item.badge" :value="unreadCount" :hidden="!unreadCount" :max="99" class="menu-badge">

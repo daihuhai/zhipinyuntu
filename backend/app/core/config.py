@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     ARK_API_KEY: str = ""
     ARK_BASE_URL: str = "https://ark.cn-beijing.volces.com/api/v3"
     ARK_CHAT_MODEL: str = "doubao-seed-2-1-pro-260628"
+    ARK_CHAT_MODEL_LITE: str = "doubao-seed-2-0-mini-260428"
     ARK_EMBEDDING_MODEL: str = "doubao-embedding-vision-251215"
 
     # ===== Celery =====

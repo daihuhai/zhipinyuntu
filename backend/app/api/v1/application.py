@@ -20,6 +20,7 @@ from app.models.resume import Resume
 from app.models.job import Job
 from app.models.application import JobApplication
 from app.models.message import Message
+from app.models.company_review import CompanyReview
 from app.schemas.common import success, fail, BizError
 from app.services.match_service import match_service
 from app.utils.mask import mask_phone, mask_email
@@ -113,6 +114,7 @@ def _application_to_dict(app: JobApplication) -> dict[str, Any]:
         "status": app.status,
         "cover_letter": app.cover_letter,
         "created_at": app.created_at.isoformat() if app.created_at else None,
+        "updated_at": app.updated_at.isoformat() if app.updated_at else None,
     }
 
 
@@ -194,13 +196,30 @@ async def list_my_applications(
         base_stmt.order_by(JobApplication.created_at.desc()).offset(offset).limit(size)
     ).all()
 
+    # 关联企业用户ID + 是否已评价 (供前端展示评价入口)
+    job_ids = [job.id for _, job in rows]
+    job_user_map = {}
+    if job_ids:
+        for j in db.execute(select(Job.id, Job.user_id).where(Job.id.in_(job_ids))).all():
+            job_user_map[j.id] = j.user_id
+    reviewed_job_ids = set(
+        db.execute(
+            select(CompanyReview.job_id).where(
+                CompanyReview.reviewer_id == current_user.id,
+                CompanyReview.job_id.in_(job_ids),
+            )
+        ).scalars()
+    )
+
     items = [
         {
             **_application_to_dict(app),
+            "reviewed": app.job_id in reviewed_job_ids,
             "job": {
                 "id": job.id,
                 "title": job.title,
                 "company": job.company,
+                "company_id": job_user_map.get(job.id),
                 "work_city": job.work_city,
                 "salary_min": job.salary_min,
                 "salary_max": job.salary_max,
@@ -591,3 +610,122 @@ async def withdraw_application(
     except Exception as e:
         db.rollback()
         return fail(BizError.SYSTEM_ERROR, f"撤回失败: {e}")
+
+
+@router.get("/{application_id}/timeline", summary="投递状态时间轴", response_model=None)
+async def get_application_timeline(
+    application_id: int,
+    current_user: SysUser = Depends(require_role("ROLE_SEEKER", "ROLE_EMPLOYER", "ROLE_ADMIN")),
+    db: Session = Depends(get_db),
+):
+    """获取投递状态时间轴 (基于当前状态推导各阶段节点)"""
+    app = db.get(JobApplication, application_id)
+    if app is None:
+        return fail(BizError.RESOURCE_NOT_FOUND, "投递记录不存在")
+
+    # 权限: 求职者仅本人, 企业仅投递本企业的职位
+    if current_user.role == "ROLE_SEEKER" and app.applicant_id != current_user.id:
+        return fail(BizError.ROLE_FORBIDDEN, "无权查看他人投递记录")
+    if current_user.role == "ROLE_EMPLOYER":
+        job = db.get(Job, app.job_id)
+        if job is None or job.user_id != current_user.id:
+            return fail(BizError.ROLE_FORBIDDEN, "无权查看非本企业的投递记录")
+
+    # 所有状态阶段定义 (按流程顺序)
+    all_stages = [
+        {"status": 0, "title": "投递成功", "desc": "简历已成功投递", "actor": "求职者"},
+        {"status": 1, "title": "HR 已查看", "desc": "企业 HR 已查阅简历", "actor": "企业"},
+        {"status": 2, "title": "面试邀请", "desc": "企业发出面试邀请", "actor": "企业"},
+        {"status": 4, "title": "已录用", "desc": "恭喜! 企业已发出录用通知", "actor": "企业"},
+    ]
+
+    current_status = app.status
+
+    # 根据当前状态生成时间轴节点
+    timeline = []
+
+    if current_status == 5:
+        # 已撤回
+        timeline.append({
+            "title": "投递成功",
+            "time": app.created_at.isoformat() if app.created_at else None,
+            "status": "done",
+            "desc": "简历已成功投递",
+            "actor": "求职者",
+        })
+        timeline.append({
+            "title": "已撤回",
+            "time": app.updated_at.isoformat() if app.updated_at else None,
+            "status": "rejected",
+            "desc": "求职者已撤回投递",
+            "actor": "求职者",
+        })
+    elif current_status == 3:
+        # 不合适 — 投递→已查看→不合适
+        timeline.append({
+            "title": "投递成功",
+            "time": app.created_at.isoformat() if app.created_at else None,
+            "status": "done",
+            "desc": "简历已成功投递",
+            "actor": "求职者",
+        })
+        timeline.append({
+            "title": "HR 已查看",
+            "time": None,
+            "status": "done",
+            "desc": "企业 HR 已查阅简历",
+            "actor": "企业",
+        })
+        timeline.append({
+            "title": "不合适",
+            "time": app.updated_at.isoformat() if app.updated_at else None,
+            "status": "rejected",
+            "desc": "企业评估后认为暂不匹配",
+            "actor": "企业",
+        })
+    else:
+        # 正常流程: 0→1→2→4, 根据当前状态标记已完成/进行中/待定
+        for i, stage in enumerate(all_stages):
+            if stage["status"] <= current_status:
+                # 已完成
+                time_str = None
+                if stage["status"] == 0:
+                    time_str = app.created_at.isoformat() if app.created_at else None
+                elif stage["status"] == current_status:
+                    time_str = app.updated_at.isoformat() if app.updated_at else None
+                timeline.append({
+                    "title": stage["title"],
+                    "time": time_str,
+                    "status": "done",
+                    "desc": stage["desc"],
+                    "actor": stage["actor"],
+                })
+            elif stage["status"] == 2 and current_status < 2:
+                # 面试邀请之后的阶段标记为待定
+                timeline.append({
+                    "title": stage["title"],
+                    "time": None,
+                    "status": "pending",
+                    "desc": stage["desc"],
+                    "actor": stage["actor"],
+                })
+            else:
+                timeline.append({
+                    "title": stage["title"],
+                    "time": None,
+                    "status": "pending",
+                    "desc": stage["desc"],
+                    "actor": stage["actor"],
+                })
+
+    # 获取职位信息
+    job = db.get(Job, app.job_id)
+    job_title = job.title if job else ""
+
+    return success(data={
+        "timeline": timeline,
+        "current_status": current_status,
+        "job_title": job_title,
+        "created_at": app.created_at.isoformat() if app.created_at else None,
+        "updated_at": app.updated_at.isoformat() if app.updated_at else None,
+    })

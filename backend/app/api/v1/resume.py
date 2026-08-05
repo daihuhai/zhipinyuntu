@@ -25,7 +25,7 @@ from app.schemas.common import success, fail, BizError
 from app.services.resume_service import resume_service
 from app.services.vip_service import vip_service, QuotaExceededException
 from app.ai.ark_client import ark_client
-from app.ai.prompts import build_gap_analysis_messages
+from app.ai.prompts import build_gap_analysis_messages, build_resume_optimize_messages
 from app.utils.mask import mask_phone, mask_email
 
 router = APIRouter(prefix="/resumes", tags=["简历"])
@@ -358,7 +358,7 @@ async def analyze_resume_gaps(
 
         # 在线程池中调用 LLM, 避免阻塞事件循环
         result, gap_usage = await asyncio.to_thread(
-            ark_client.chat_json, messages, temperature=0.2, max_tokens=2048
+            ark_client.chat_json_lite, messages, temperature=0.2, max_tokens=2048
         )
 
         # 记录灵犀分析操作日志
@@ -385,3 +385,364 @@ async def analyze_resume_gaps(
         current_user.paid_quota = _paid_before
         db.commit()
         return fail(BizError.SYSTEM_ERROR, f"分析失败: {e}")
+
+
+@router.post("/{resume_id}/analyze-form", summary="灵犀分析编辑中的简历(实时)", response_model=None)
+async def analyze_resume_form(
+    resume_id: int,
+    payload: dict,
+    current_user: SysUser = Depends(require_role("ROLE_SEEKER")),
+    db: Session = Depends(get_db),
+):
+    """接收前端编辑中的表单数据, 实时分析缺失项 (无需先保存)"""
+    import asyncio
+    try:
+        resume = resume_service.get_detail(resume_id, db)
+        if resume.user_id != current_user.id:
+            return fail(BizError.ROLE_FORBIDDEN, "无权分析他人简历")
+
+        # VIP 配额检查
+        _paid_before = current_user.paid_quota
+        _free_used_before = current_user.free_quota_used
+        try:
+            vip_service.check_and_consume_quota(current_user, db, action="gap_analysis")
+        except QuotaExceededException as e:
+            return fail(BizError.ROLE_FORBIDDEN, e.message, data=e.quota_info)
+
+        # 直接使用前端传来的表单数据构造摘要
+        form_data = payload.get("form_data", {})
+        resume_summary = {
+            "name": form_data.get("name") or "",
+            "gender": form_data.get("gender") or "",
+            "age": form_data.get("age"),
+            "phone": form_data.get("phone") or "",
+            "email": form_data.get("email") or "",
+            "current_city": form_data.get("current_city") or "",
+            "intention_cities": form_data.get("intention_cities") or "",
+            "education": form_data.get("education") or "",
+            "school": form_data.get("school") or "",
+            "major": form_data.get("major") or "",
+            "work_years": form_data.get("work_years"),
+            "expected_salary_min": form_data.get("expected_salary_min"),
+            "expected_salary_max": form_data.get("expected_salary_max"),
+            "self_evaluation": form_data.get("self_evaluation") or "",
+            "skills": form_data.get("skills") or [],
+            "work_experience": _parse_work_experience(resume.raw_parse_json),
+            "projects": _parse_projects(resume.raw_parse_json),
+        }
+
+        messages = build_gap_analysis_messages(json.dumps(resume_summary, ensure_ascii=False))
+        result, gap_usage = await asyncio.to_thread(
+            ark_client.chat_json_lite, messages, temperature=0.2, max_tokens=2048
+        )
+
+        try:
+            from app.services.admin_service import admin_service
+            admin_service.write_system_log(
+                db,
+                action="AI_GAP_ANALYSIS",
+                target_type="resume",
+                target_id=resume_id,
+                detail=f"灵犀分析(实时编辑): {resume.name or '未知'} (ID:{resume_id})",
+                tokens_in=gap_usage.get("prompt_tokens", 0),
+                tokens_out=gap_usage.get("completion_tokens", 0),
+            )
+        except Exception:
+            pass
+
+        return success(data=result)
+    except ValueError as e:
+        return fail(BizError.RESOURCE_NOT_FOUND, str(e))
+    except Exception as e:
+        current_user.free_quota_used = _free_used_before
+        current_user.paid_quota = _paid_before
+        db.commit()
+        return fail(BizError.SYSTEM_ERROR, f"分析失败: {e}")
+
+
+@router.post("/{resume_id}/optimize", summary="灵犀AI简历优化建议", response_model=None)
+async def optimize_resume(
+    resume_id: int,
+    current_user: SysUser = Depends(require_role("ROLE_SEEKER")),
+    db: Session = Depends(get_db),
+):
+    """调用灵犀大模型对简历进行深度优化评估, 返回评分+改进建议+改写示例 (非 VIP 用户消耗配额)"""
+    import asyncio
+    try:
+        resume = resume_service.get_detail(resume_id, db)
+        if resume.user_id != current_user.id:
+            return fail(BizError.ROLE_FORBIDDEN, "无权分析他人简历")
+
+        # VIP 配额检查
+        _paid_before = current_user.paid_quota
+        _free_used_before = current_user.free_quota_used
+        try:
+            vip_service.check_and_consume_quota(current_user, db, action="gap_analysis")
+        except QuotaExceededException as e:
+            return fail(BizError.ROLE_FORBIDDEN, e.message, data=e.quota_info)
+
+        # 构造简历摘要 JSON
+        resume_summary = {
+            "name": resume.name or "",
+            "gender": resume.gender or "",
+            "age": resume.age,
+            "phone": resume.phone or "",
+            "email": resume.email or "",
+            "current_city": resume.current_city or "",
+            "intention_cities": resume.intention_cities or "",
+            "education": resume.education or "",
+            "school": resume.school or "",
+            "major": resume.major or "",
+            "work_years": resume.work_years,
+            "expected_salary_min": resume.expected_salary_min,
+            "expected_salary_max": resume.expected_salary_max,
+            "self_evaluation": resume.self_evaluation or "",
+            "skills": [
+                {"skill_name": s.skill_name, "skill_level": s.skill_level}
+                for s in resume.skills
+            ],
+            "work_experience": _parse_work_experience(resume.raw_parse_json),
+            "projects": _parse_projects(resume.raw_parse_json),
+        }
+
+        messages = build_resume_optimize_messages(
+            json.dumps(resume_summary, ensure_ascii=False)
+        )
+
+        result, opt_usage = await asyncio.to_thread(
+            ark_client.chat_json, messages, temperature=0.3, max_tokens=2048
+        )
+
+        # 记录操作日志
+        try:
+            from app.services.admin_service import admin_service
+            admin_service.write_system_log(
+                db,
+                action="AI_RESUME_OPTIMIZE",
+                target_type="resume",
+                target_id=resume_id,
+                detail=f"灵犀AI简历优化建议: {resume.name or '未知'} (ID:{resume_id})",
+                tokens_in=opt_usage.get("prompt_tokens", 0),
+                tokens_out=opt_usage.get("completion_tokens", 0),
+            )
+        except Exception:
+            pass
+
+        return success(data=result)
+    except ValueError as e:
+        return fail(BizError.RESOURCE_NOT_FOUND, str(e))
+    except Exception as e:
+        current_user.free_quota_used = _free_used_before
+        current_user.paid_quota = _paid_before
+        db.commit()
+        return fail(BizError.SYSTEM_ERROR, f"优化分析失败: {e}")
+
+
+# ===== 学历排序映射 =====
+_EDU_RANK = {"高中": 1, "大专": 2, "本科": 3, "硕士": 4, "博士": 5}
+
+
+@router.get("/{resume_id}/competitiveness", summary="求职者竞争力分析", response_model=None)
+async def get_competitiveness(
+    resume_id: int,
+    current_user: SysUser = Depends(require_role("ROLE_SEEKER")),
+    db: Session = Depends(get_db),
+):
+    """竞争力分析: 统计同岗位候选人数据, 返回五维百分位 + 雷达图数据 + 提升建议"""
+    try:
+        resume = resume_service.get_detail(resume_id, db)
+        if resume.user_id != current_user.id:
+            return fail(BizError.ROLE_FORBIDDEN, "无权分析他人简历")
+
+        # 1. 找到该简历投递过的所有职位, 获取同岗位候选人
+        from app.models.application import JobApplication
+        from app.models.match import MatchRecord
+
+        job_ids_subq = (
+            select(JobApplication.job_id)
+            .where(JobApplication.resume_id == resume_id)
+            .subquery()
+        )
+
+        # 查询投递了相同职位的其他简历 (同岗位候选人)
+        peer_resume_ids_q = (
+            select(JobApplication.resume_id)
+            .where(JobApplication.job_id.in_(select(job_ids_subq.c.job_id)))
+            .where(JobApplication.resume_id != resume_id)
+            .distinct()
+        )
+        peer_resume_ids = [row[0] for row in db.execute(peer_resume_ids_q).all()]
+
+        # 如果同岗位候选人不足, 用全部简历作为参考池
+        if len(peer_resume_ids) < 3:
+            peer_resume_ids_q = (
+                select(Resume.id)
+                .where(Resume.id != resume_id)
+                .where(Resume.parse_status == 2)
+                .limit(200)
+            )
+            peer_resume_ids = [row[0] for row in db.execute(peer_resume_ids_q).all()]
+
+        # 2. 查询全体候选人数据 (含自己)
+        all_ids = list(set(peer_resume_ids + [resume_id]))
+        all_resumes_q = (
+            select(Resume, ResumeSkill)
+            .outerjoin(ResumeSkill, ResumeSkill.resume_id == Resume.id)
+            .where(Resume.id.in_(all_ids))
+        )
+        rows = db.execute(all_resumes_q).all()
+
+        # 聚合每份简历的技能数
+        skill_count_map: dict[int, int] = {}
+        resume_map: dict[int, Resume] = {}
+        for r, s in rows:
+            if r.id not in resume_map:
+                resume_map[r.id] = r
+                skill_count_map[r.id] = 0
+            if s is not None:
+                skill_count_map[r.id] += 1
+
+        # 3. 查询匹配得分 (该简历被推荐时的平均匹配分)
+        match_scores_q = (
+            select(MatchRecord.total_score)
+            .where(MatchRecord.resume_id == resume_id)
+        )
+        my_match_scores = [row[0] for row in db.execute(match_scores_q).all()]
+
+        # 同岗位候选人的匹配得分
+        if peer_resume_ids:
+            peer_match_scores_q = (
+                select(MatchRecord.total_score)
+                .where(MatchRecord.resume_id.in_(peer_resume_ids))
+            )
+            peer_match_scores = [row[0] for row in db.execute(peer_match_scores_q).all()]
+        else:
+            peer_match_scores = []
+
+        # 4. 计算百分位函数
+        def percentile(value: float, pool: list[float]) -> float:
+            """计算 value 在 pool 中的百分位 (0-100)"""
+            if not pool:
+                return 50.0
+            below = sum(1 for v in pool if v <= value)
+            return round(below / len(pool) * 100, 1)
+
+        # 5. 五维数据
+        my_skills = skill_count_map.get(resume_id, 0)
+        peer_skill_counts = [skill_count_map.get(rid, 0) for rid in peer_resume_ids]
+
+        my_work_years = float(resume.work_years or 0)
+        peer_work_years = [float(r.work_years or 0) for r in resume_map.values() if r.id != resume_id]
+
+        my_edu_rank = _EDU_RANK.get(resume.education or "", 0)
+        peer_edu_ranks = [_EDU_RANK.get(r.education or "", 0) for r in resume_map.values() if r.id != resume_id]
+
+        my_avg_match = sum(my_match_scores) / len(my_match_scores) if my_match_scores else 0
+        peer_avg_match = peer_match_scores if peer_match_scores else []
+
+        # 技能覆盖度百分位
+        skill_pct = percentile(float(my_skills), [float(c) for c in peer_skill_counts])
+        # 经验年限百分位
+        exp_pct = percentile(my_work_years, peer_work_years)
+        # 学历水平百分位
+        edu_pct = percentile(float(my_edu_rank), [float(r) for r in peer_edu_ranks])
+        # 匹配得分百分位
+        match_pct = percentile(my_avg_match, peer_avg_match) if peer_avg_match else 50.0
+        # 简历完整度 (根据填写字段比例)
+        my_fields = [resume.name, resume.gender, resume.age, resume.phone, resume.email,
+                     resume.current_city, resume.education, resume.school, resume.major,
+                     resume.work_years, resume.self_evaluation]
+        filled = sum(1 for f in my_fields if f is not None and str(f).strip())
+        completeness = round(filled / len(my_fields) * 100, 1)
+
+        # 6. 雷达图数据
+        radar_indicators = [
+            {"name": "技能覆盖度", "max": 100},
+            {"name": "经验年限", "max": 100},
+            {"name": "学历水平", "max": 100},
+            {"name": "匹配得分", "max": 100},
+            {"name": "简历完整度", "max": 100},
+        ]
+        radar_values = [skill_pct, exp_pct, edu_pct, match_pct, completeness]
+
+        # 7. 同岗位统计概要
+        peer_count = len(peer_resume_ids)
+        skill_median = sorted(peer_skill_counts)[len(peer_skill_counts) // 2] if peer_skill_counts else 0
+        exp_median = sorted(peer_work_years)[len(peer_work_years) // 2] if peer_work_years else 0
+
+        # 8. 提升建议
+        suggestions = []
+        if skill_pct < 50:
+            suggestions.append(f"你的技能数量({my_skills}项)低于同岗位中位数({skill_median}项), 建议补充更多技能以提升竞争力")
+        if exp_pct < 50:
+            suggestions.append(f"你的工作年限({int(my_work_years)}年)低于同岗位中位数({int(exp_median)}年), 建议突出项目经验弥补年限不足")
+        if edu_pct < 50:
+            suggestions.append("你的学历在同岗位候选人中偏低, 建议通过证书或项目成果展示实力")
+        if match_pct < 50:
+            suggestions.append(f"你的平均匹配得分({my_avg_match:.1f})低于同岗位平均水平, 建议优化简历关键词以提高匹配度")
+        if completeness < 80:
+            suggestions.append(f"简历完整度仅{completeness}%, 建议补全个人信息以提升简历质量")
+        if not suggestions:
+            suggestions.append("你的各项指标在同岗位候选人中表现优秀, 继续保持!")
+
+        # 9. TOP 技能分析
+        my_skill_names = set()
+        for r, s in rows:
+            if r.id == resume_id and s is not None:
+                my_skill_names.add(s.skill_name)
+
+        peer_skill_freq: dict[str, int] = {}
+        for r, s in rows:
+            if r.id != resume_id and s is not None:
+                peer_skill_freq[s.skill_name] = peer_skill_freq.get(s.skill_name, 0) + 1
+
+        # 同岗位热门技能 TOP5 中你缺失的
+        top_peer_skills = sorted(peer_skill_freq.items(), key=lambda x: x[1], reverse=True)[:5]
+        missing_hot_skills = [name for name, cnt in top_peer_skills if name not in my_skill_names]
+        if missing_hot_skills:
+            suggestions.append(f"同岗位热门技能中你还缺少: {', '.join(missing_hot_skills)}, 建议学习补充")
+
+        return success(data={
+            "radar": {
+                "indicators": radar_indicators,
+                "values": radar_values,
+            },
+            "dimensions": [
+                {"name": "技能覆盖度", "percentile": skill_pct, "value": my_skills, "median": skill_median,
+                 "unit": "项", "desc": f"你的技能数 {my_skills} 项, 同岗位中位数 {skill_median} 项"},
+                {"name": "经验年限", "percentile": exp_pct, "value": int(my_work_years), "median": int(exp_median),
+                 "unit": "年", "desc": f"你的工作年限 {int(my_work_years)} 年, 同岗位中位数 {int(exp_median)} 年"},
+                {"name": "学历水平", "percentile": edu_pct,
+                 "value": resume.education or "未填写",
+                 "median": _median_education(peer_edu_ranks),
+                 "unit": "", "desc": f"你的学历 {resume.education or '未填写'}, 同岗位中位数 {_median_education(peer_edu_ranks)}"},
+                {"name": "匹配得分", "percentile": match_pct,
+                 "value": round(my_avg_match, 1), "median": _median_float(peer_avg_match),
+                 "unit": "分", "desc": f"你的平均匹配分 {my_avg_match:.1f}, 同岗位平均 {_median_float(peer_avg_match):.1f}"},
+                {"name": "简历完整度", "percentile": completeness,
+                 "value": completeness, "median": None,
+                 "unit": "%", "desc": f"简历信息填写完整度 {completeness}%"},
+            ],
+            "peer_count": peer_count,
+            "suggestions": suggestions,
+        })
+    except ValueError as e:
+        return fail(BizError.RESOURCE_NOT_FOUND, str(e))
+    except Exception as e:
+        return fail(BizError.SYSTEM_ERROR, f"竞争力分析失败: {e}")
+
+
+def _median_float(values: list[float]) -> float:
+    if not values:
+        return 0.0
+    s = sorted(values)
+    return s[len(s) // 2]
+
+
+def _median_education(ranks: list[float]) -> str:
+    if not ranks:
+        return "未知"
+    s = sorted(ranks)
+    median_rank = s[len(s) // 2]
+    reverse_map = {v: k for k, v in _EDU_RANK.items()}
+    return reverse_map.get(median_rank, "未知")

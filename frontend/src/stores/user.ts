@@ -10,6 +10,8 @@ export interface UserInfo {
   nickname: string
   role: 'ROLE_SEEKER' | 'ROLE_EMPLOYER' | 'ROLE_ADMIN'
   avatar_url?: string
+  /** 新用户引导是否已完成: 0=未完成 1=已完成 (来自后端, 持久化存储) */
+  onboard_done?: number
 }
 
 export const useUserStore = defineStore('user', () => {

@@ -17,6 +17,7 @@ from app.api.v1.websocket import router as ws_router
 from app.api.v1.metrics import router as metrics_router
 from app.api.v1.vip import router as vip_router, admin_router as vip_admin_router
 from app.api.v1.feedback import router as feedback_router, admin_router as feedback_admin_router
+from app.api.v1.review import router as review_router
 
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(health_router)
@@ -38,5 +39,6 @@ api_router.include_router(vip_router)
 api_router.include_router(vip_admin_router)
 api_router.include_router(feedback_router)
 api_router.include_router(feedback_admin_router)
+api_router.include_router(review_router)
 
 __all__ = ["api_router"]

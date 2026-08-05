@@ -30,6 +30,7 @@ export interface LoginResult {
   nickname: string
   role: string
   avatar_url?: string
+  onboard_done?: number
   access_token: string
   refresh_token: string
   expires_in: number
@@ -42,6 +43,8 @@ export const authApi = {
   refresh: (refreshToken: string) => request.post('/auth/refresh', { refresh_token: refreshToken }),
   /** 获取当前用户信息 */
   me: () => request.get('/auth/me'),
+  /** 标记新用户引导完成 */
+  onboardDone: () => request.post('/auth/onboard-done'),
   /** 修改个人信息 */
   updateProfile: (data: Record<string, any>) => request.put('/auth/profile', data),
   /** 修改密码 (需登录) */

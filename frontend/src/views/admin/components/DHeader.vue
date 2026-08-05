@@ -9,24 +9,24 @@
     </div>
     <div class="header-right">
       <el-select v-model="range" size="small" class="range-select" @change="onRangeChange">
-        <el-option label="今日" value="today" />
-        <el-option label="近 7 日" value="7d" />
-        <el-option label="近 30 日" value="30d" />
-        <el-option label="全部" value="all" />
+        <el-option label="近 7 天" value="7d" />
+        <el-option label="近 30 天" value="30d" />
+        <el-option label="近 90 天" value="90d" />
       </el-select>
       <el-button :icon="Refresh" circle size="small" @click="onRefresh" />
-      <el-button :icon="FullScreen" circle size="small" @click="toggleFullscreen" />
+      <el-button :icon="FullScreen" circle size="small" @click="onFullscreen" />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount } from 'vue'
-import { Refresh, Expand, FullScreen } from '@element-plus/icons-vue'
+import { Refresh, FullScreen } from '@element-plus/icons-vue'
 
 const emit = defineEmits<{
   (e: 'refresh'): void
   (e: 'range-change', v: string): void
+  (e: 'fullscreen'): void
 }>()
 
 const clock = ref('')
@@ -41,14 +41,7 @@ const updateClock = () => {
 
 const onRefresh = () => emit('refresh')
 const onRangeChange = (v: string) => emit('range-change', v)
-
-const toggleFullscreen = () => {
-  if (!document.fullscreenElement) {
-    document.documentElement.requestFullscreen?.()
-  } else {
-    document.exitFullscreen?.()
-  }
-}
+const onFullscreen = () => emit('fullscreen')
 
 onMounted(() => {
   updateClock()

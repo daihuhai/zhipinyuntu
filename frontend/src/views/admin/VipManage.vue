@@ -157,7 +157,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, GoldMedal, Clock, Close } from '@element-plus/icons-vue'
 import { adminVipApi } from '@/api/vip'
@@ -165,6 +165,13 @@ import { adminVipApi } from '@/api/vip'
 const list = ref<any[]>([])
 const loading = ref(false)
 const keyword = ref('')
+let debounceTimer: ReturnType<typeof setTimeout> | null = null
+watch(keyword, () => {
+  if (debounceTimer) clearTimeout(debounceTimer)
+  debounceTimer = setTimeout(() => {
+    fetchList()
+  }, 300)
+})
 const vipOnly = ref(0)
 const page = ref(1)
 const size = ref(20)

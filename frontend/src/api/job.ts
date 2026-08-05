@@ -47,12 +47,17 @@ export const jobApi = {
   /** 解析 JD 纯文本, 返回结构化字段供预填表单 (doubao-seed 推理模型, 单独设置 300s 超时) */
   parseJDText: (text: string) =>
     request.post('/jobs/parse-jd-text', { text }, { timeout: 300000 }),
+  /** 灵犀AI生成职位描述 (根据岗位名称+级别+核心技能) */
+  generateDescription: (data: { title: string; level?: string; skills?: string; extra?: string }) =>
+    request.post('/jobs/generate-description', data, { timeout: 600000 }),
   /** 企业职位列表 (我的职位, 支持搜索) */
   myList: (keyword?: string) => request.get('/jobs', { params: keyword ? { keyword } : {} }),
   /** 职位广场 (公开, 分页, 多条件筛选) */
   list: (params: JobListParams) => request.get('/jobs/plaza', { params }),
   /** 职位详情 */
   detail: (id: number) => request.get(`/jobs/${id}`),
+  /** 相似职位推荐 */
+  similar: (id: number, limit = 6) => request.get(`/jobs/similar/${id}`, { params: { limit } }),
   /** 删除职位 */
   remove: (id: number) => request.delete(`/jobs/${id}`),
   /** 更新职位状态 (后端为 PATCH /jobs/{id}/status?status=N) */
