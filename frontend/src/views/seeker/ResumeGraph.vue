@@ -192,7 +192,6 @@ const scoreStyle = computed(() => {
   const deg = (score / 100) * 360
   return {
     background: `conic-gradient(${color} ${deg}deg, rgba(255,255,255,0.08) ${deg}deg)`,
-    color,
   }
 })
 

@@ -74,33 +74,35 @@
         </el-table-column>
         <el-table-column label="操作" width="200" fixed="right">
           <template #default="{ row }">
-            <el-button
-              v-if="!row.is_vip"
-              link
-              type="primary"
-              :icon="GoldMedal"
-              @click="openVipDialog(row)"
-            >
-              开通 VIP
-            </el-button>
-            <el-button
-              v-else
-              link
-              type="warning"
-              :icon="Clock"
-              @click="openVipDialog(row)"
-            >
-              续费/延期
-            </el-button>
-            <el-button
-              v-if="row.is_vip"
-              link
-              type="danger"
-              :icon="Close"
-              @click="handleCancelVip(row)"
-            >
-              取消 VIP
-            </el-button>
+            <div class="action-btns">
+              <el-button
+                v-if="!row.is_vip"
+                link
+                type="primary"
+                :icon="GoldMedal"
+                @click="openVipDialog(row)"
+              >
+                开通 VIP
+              </el-button>
+              <template v-else>
+                <el-button
+                  link
+                  type="warning"
+                  :icon="Clock"
+                  @click="openVipDialog(row)"
+                >
+                  续费/延期
+                </el-button>
+                <el-button
+                  link
+                  type="danger"
+                  :icon="Close"
+                  @click="handleCancelVip(row)"
+                >
+                  取消 VIP
+                </el-button>
+              </template>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -275,6 +277,9 @@ onMounted(fetchList)
 .paid-num { font-weight: 600; color: #faad14; }
 .text-muted { color: #bfbfbf; }
 .expired { color: #ff4d4f; text-decoration: line-through; }
+
+/* 操作列按钮统一左对齐 */
+.action-btns { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 
 /* 开通时长选择 */
 .duration-select { margin-top: 20px; }

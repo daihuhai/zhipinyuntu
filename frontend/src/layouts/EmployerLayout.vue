@@ -137,8 +137,21 @@ onUnmounted(() => {
 }
 .normal-tag:hover { background: #e6f4ff; color: #1677ff; }
 .main { background: var(--bg-page); padding: 20px; overflow-y: auto; }
-.menu-badge :deep(.el-badge__content) { background-color: #f56c6c; border: none; font-size: 11px; height: 18px; line-height: 18px; }
-:deep(.el-menu-item) { caret-color: transparent; user-select: none; }
+.menu-badge :deep(.el-badge__content) {
+  background-color: #f56c6c;
+  border: none;
+  font-size: 11px;
+  height: 18px;
+  line-height: 18px;
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+:deep(.el-menu-item) {
+  position: relative;
+  caret-color: transparent;
+  user-select: none;
+}
 
 @media (max-width: 768px) {
   .sidebar { width: 0 !important; }

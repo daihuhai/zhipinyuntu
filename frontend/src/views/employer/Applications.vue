@@ -522,7 +522,6 @@ const ringStyle = computed(() => {
   const deg = (score / 100) * 360
   return {
     background: `conic-gradient(${color} ${deg}deg, rgba(0,0,0,0.06) ${deg}deg)`,
-    color,
   }
 })
 
@@ -913,9 +912,17 @@ onMounted(fetchJobs)
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  position: relative;
 }
-.score-num { font-size: 24px; font-weight: 700; }
-.score-unit { font-size: 12px; }
+.match-score-ring::after {
+  content: '';
+  position: absolute;
+  inset: 8px;
+  border-radius: 50%;
+  background: #fff;
+}
+.score-num { font-size: 24px; font-weight: 700; position: relative; z-index: 1; }
+.score-unit { font-size: 12px; position: relative; z-index: 1; }
 .match-title { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
 .match-sub { font-size: 12px; color: #666; }
 
