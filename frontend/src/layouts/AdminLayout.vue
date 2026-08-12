@@ -25,7 +25,7 @@ const handleLogout = () => { userStore.logout(); router.push('/login') }
   <el-container class="layout">
     <el-aside :width="collapsed ? '64px' : '220px'" class="sidebar">
       <div class="logo">
-        <img src="@/assets/logo.png" class="logo-img" alt="智聘云图" />
+        <img src="@/assets/logo.png" class="logo-img" alt="智聘云图" loading="lazy" />
         <span v-if="!collapsed">管理后台</span>
       </div>
       <el-menu :default-active="$route.path" :collapse="collapsed" background-color="#001529" text-color="#ffffffb3" active-text-color="#fff" @select="handleSelect">

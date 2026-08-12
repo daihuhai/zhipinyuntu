@@ -47,16 +47,18 @@ export const authApi = {
   onboardDone: () => request.post('/auth/onboard-done'),
   /** 修改个人信息 */
   updateProfile: (data: Record<string, any>) => request.put('/auth/profile', data),
+  /** 上传头像 */
+  uploadAvatar: (file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return request.post('/auth/avatar', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
   /** 修改密码 (需登录) */
   changePassword: (data: { old_password: string; new_password: string }) =>
     request.put('/auth/change-password', data),
   /** 忘记密码重置 (用户名+手机号验证) */
   forgotPassword: (data: { username: string; phone: string; new_password: string }) =>
     request.post('/auth/forgot-password', data),
-}
-
-/** 健康检查 (M1 验证用) */
-export const healthApi = {
-  check: () => request.get('/health'),
-  detail: () => request.get('/health/detail'),
 }

@@ -42,6 +42,7 @@ def _message_to_dict(msg: Message, sender: SysUser | None = None) -> dict[str, A
         "created_at": msg.created_at.isoformat() if msg.created_at else None,
         "sender_name": sender.nickname if sender else None,
         "sender_role": sender.role if sender else None,
+        "sender_avatar_url": sender.avatar_url if sender else None,
     }
 
 
@@ -113,6 +114,7 @@ async def list_conversations(
                 "user_id": other_id,
                 "user_name": other_user.nickname if other_user else f"用户{other_id}",
                 "user_role": other_user.role if other_user else None,
+                "user_avatar_url": other_user.avatar_url if other_user else None,
                 "last_message": msg.content[:50],
                 "last_time": msg.created_at.isoformat() if msg.created_at else None,
                 "unread_count": unread,
@@ -180,6 +182,7 @@ async def list_messages_with_user(
         "user_id": user_id,
         "user_name": other_user.nickname if other_user else f"用户{user_id}",
         "user_role": other_user.role if other_user else None,
+        "user_avatar_url": other_user.avatar_url if other_user else None,
     }
 
     return success(data={"items": items, "total": total, "other": other_info})

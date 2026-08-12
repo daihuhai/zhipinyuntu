@@ -206,7 +206,7 @@
       <div class="share-card" ref="shareCardRef">
         <div class="share-card-header">
           <div class="share-brand">
-            <img src="@/assets/logo.png" class="share-logo" alt="智聘云图" />
+            <img src="@/assets/logo.png" class="share-logo" alt="智聘云图" loading="lazy" />
             <span class="share-brand-name">智聘云图</span>
           </div>
           <div class="share-tag">热门职位</div>

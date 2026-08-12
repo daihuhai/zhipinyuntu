@@ -9,12 +9,13 @@
 - PUT  /auth/change-password  修改密码 (已登录)
 - POST /auth/forgot-password  忘记密码重置 (用户名+手机号验证)
 """
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, UploadFile, File
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
 from app.core.security import verify_password, hash_password
+from app.core.config import settings
 from app.db.base import get_db
 from app.core.limiter import limiter
 from app.models.user import SysUser
@@ -212,3 +213,51 @@ async def forgot_password(
     except Exception as e:
         db.rollback()
         return fail(BizError.SYSTEM_ERROR, f"密码重置失败: {e}")
+
+
+# 允许的头像图片类型
+AVATAR_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+AVATAR_MAX_SIZE = 2 * 1024 * 1024  # 2MB
+
+
+@router.post("/avatar", summary="上传头像", response_model=None)
+async def upload_avatar(
+    file: UploadFile = File(...),
+    current_user: SysUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """上传头像图片, 保存到 /uploads/avatars/ 目录, 更新用户 avatar_url"""
+    import os, hashlib
+    from datetime import datetime
+    from pathlib import Path
+
+    # 校验文件类型
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in AVATAR_EXTENSIONS:
+        return fail(BizError.VALIDATION_ERROR, f"不支持的图片类型: {ext}, 仅支持 {', '.join(AVATAR_EXTENSIONS)}")
+
+    # 读取文件内容
+    content = await file.read()
+    if len(content) > AVATAR_MAX_SIZE:
+        return fail(BizError.VALIDATION_ERROR, f"图片过大, 上限 {AVATAR_MAX_SIZE // 1024 // 1024}MB")
+
+    # 保存文件
+    storage_path = Path(settings.STORAGE_PATH).resolve()
+    save_dir = storage_path / "avatars"
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    file_hash = hashlib.md5(content).hexdigest()
+    now = datetime.now()
+    filename = f"{now.strftime('%Y%m%d%H%M%S')}_{file_hash[:8]}{ext}"
+    file_path = save_dir / filename
+    file_path.write_bytes(content)
+
+    # 相对访问 URL
+    rel_path = file_path.relative_to(storage_path).as_posix()
+    avatar_url = f"/uploads/{rel_path}"
+
+    # 更新用户头像
+    current_user.avatar_url = avatar_url
+    db.commit()
+
+    return success(data={"avatar_url": avatar_url}, message="头像上传成功")

@@ -20,7 +20,7 @@
           :class="{ active: activeUserId === conv.user_id }"
           @click="selectConv(conv.user_id)"
         >
-          <el-avatar :size="40" class="conv-avatar">
+          <el-avatar :size="40" :src="resolveAvatar(conv.user_avatar_url)" class="conv-avatar">
             {{ (conv.user_name || '?')[0] }}
           </el-avatar>
           <div class="conv-body">
@@ -57,7 +57,7 @@
               class="msg-row"
               :class="{ mine: msg.sender_id === currentUserId }"
             >
-              <el-avatar :size="32" class="msg-avatar">
+              <el-avatar :size="32" :src="resolveMsgAvatar(msg)" class="msg-avatar">
                 {{ (msg.sender_name || '?')[0] }}
               </el-avatar>
               <div class="msg-content">
@@ -85,7 +85,7 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ChatDotRound, Promotion } from '@element-plus/icons-vue'
@@ -106,6 +106,24 @@ const sending = ref(false)
 const otherInfo = ref<any>(null)
 const unreadTotal = ref(0)
 const chatBodyRef = ref<HTMLElement>()
+
+// 当前用户头像 URL (从全局状态获取, 修改头像后会自动同步)
+const myAvatarUrl = computed(() => userStore.userInfo?.avatar_url || '')
+
+// 将后端返回的相对路径头像 URL 转为可访问的绝对路径
+const resolveAvatar = (url?: string | null): string => {
+  if (!url) return ''
+  if (url.startsWith('http')) return url
+  return window.location.origin + url
+}
+
+// 根据消息发送者解析头像: 自己的消息用全局状态中的头像, 对方的消息用 otherInfo 中的头像
+const resolveMsgAvatar = (msg: any): string => {
+  if (msg.sender_id === currentUserId) {
+    return resolveAvatar(myAvatarUrl.value)
+  }
+  return resolveAvatar(otherInfo.value?.user_avatar_url)
+}
 
 const roleText = (role: string) =>
   ({ ROLE_SEEKER: '求职者', ROLE_EMPLOYER: '企业', ROLE_ADMIN: '管理员' }[role] || role)

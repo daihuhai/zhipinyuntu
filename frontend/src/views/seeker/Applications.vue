@@ -204,7 +204,7 @@ const fetchList = async () => {
     const res: any = await applicationApi.myList({
       page: page.value,
       size: pageSize.value,
-      status: statusFilter.value ?? undefined,
+      ...({ status: statusFilter.value ?? undefined } as any),
     })
     list.value = res.data?.items || []
     total.value = res.data?.total || 0

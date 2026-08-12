@@ -1,40 +1,38 @@
-"""健康检查接口 - 用于 M1 基础设施验证"""
+"""健康检查接口 - 服务存活检测"""
 import time
+from datetime import datetime, timezone
+
 from fastapi import APIRouter
+from sqlalchemy import text
+
+from app.core.config import settings
+from app.db.base import engine
 
 router = APIRouter(prefix="/health", tags=["健康检查"])
 
-# 服务启动时间
 START_TIME = time.time()
 
 
-@router.get("", summary="健康检查")
+@router.get("", summary="轻量级健康检查")
 async def health_check():
-    """基础健康检查, 验证服务是否存活"""
+    """基础健康检查, 验证服务是否存活 + 数据库连通性"""
+    db_ok = True
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except Exception:
+        db_ok = False
+
     return {
-        "status": "ok",
-        "service": "智聘云图",
-        "version": "1.0.0",
-        "uptime_seconds": round(time.time() - START_TIME, 2),
-    }
-
-
-@router.get("/detail", summary="详细健康检查")
-async def health_check_detail():
-    """详细健康检查, 包含各组件连通性"""
-    from app.core.config import settings
-
-    checks = {
-        "api": "ok",
-        "database": "skipped",  # M2 接入
-        "redis": "skipped",     # M2 接入
-        "nebula": "skipped",    # M3 接入
-        "ark_api": "configured" if settings.ARK_API_KEY else "missing",
-    }
-
-    all_ok = all(v in ("ok", "skipped", "configured") for v in checks.values())
-    return {
-        "status": "ok" if all_ok else "degraded",
-        "checks": checks,
-        "env": settings.APP_ENV,
+        "code": 0,
+        "message": "success",
+        "data": {
+            "status": "ok" if db_ok else "degraded",
+            "service": settings.APP_NAME,
+            "version": settings.APP_VERSION,
+            "env": settings.APP_ENV,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "uptime_seconds": round(time.time() - START_TIME, 2),
+            "database": "ok" if db_ok else "error",
+        },
     }

@@ -4,7 +4,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { User, Lock } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
-import { authApi, healthApi } from '@/api/auth'
+import { authApi } from '@/api/auth'
 import ForgotPasswordDialog from '@/components/ForgotPasswordDialog.vue'
 
 const router = useRouter()
@@ -14,7 +14,6 @@ const userStore = useUserStore()
 const formRef = ref<FormInstance>()
 const loading = ref(false)
 const forgotDialogRef = ref<InstanceType<typeof ForgotPasswordDialog>>()
-const healthStatus = ref<string>('')
 
 // 注册后自动填充用户名
 onMounted(() => {
@@ -75,17 +74,6 @@ const handleLogin = async () => {
       loading.value = false
     }
   })
-}
-
-const checkHealth = async () => {
-  try {
-    const res: any = await healthApi.detail()
-    healthStatus.value = res.status
-    ElMessage.success(`后端状态: ${res.status} | ARK API: ${res.checks.ark_api}`)
-  } catch (e) {
-    ElMessage.error('后端服务不可达')
-    healthStatus.value = 'offline'
-  }
 }
 </script>
 
@@ -217,16 +205,6 @@ const checkHealth = async () => {
         <div class="register-link">
           还没有账号?
           <router-link to="/register">立即注册 &gt;</router-link>
-        </div>
-
-        <!-- M1 健康检查 -->
-        <div class="health-check">
-          <el-button text size="small" @click="checkHealth">
-            检查后端服务状态
-          </el-button>
-          <el-tag v-if="healthStatus" :type="healthStatus === 'ok' ? 'success' : 'danger'" size="small">
-            后端: {{ healthStatus }}
-          </el-tag>
         </div>
       </div>
     </div>

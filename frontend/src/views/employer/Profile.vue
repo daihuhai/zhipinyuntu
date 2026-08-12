@@ -17,6 +17,32 @@
           <el-descriptions-item label="信用代码">{{ form.credit_code || '-' }}</el-descriptions-item>
         </el-descriptions>
 
+        <!-- 头像/Logo 上传 -->
+        <el-form-item label="头像/Logo">
+          <div class="avatar-upload-wrap">
+            <el-upload
+              class="avatar-uploader"
+              :show-file-list="false"
+              :before-upload="beforeAvatarUpload"
+              :http-request="handleAvatarUpload"
+              accept="image/jpeg,image/png,image/gif,image/webp"
+            >
+              <div v-if="form.avatar_url" class="avatar-preview">
+                <img :src="avatarFullUrl" class="avatar-img" />
+                <div class="avatar-overlay">点击更换</div>
+              </div>
+              <div v-else class="avatar-placeholder">
+                <el-icon :size="28"><Plus /></el-icon>
+                <span>点击上传</span>
+              </div>
+              <div v-if="avatarUploading" class="avatar-loading">
+                <el-icon class="is-loading" :size="24"><Loading /></el-icon>
+              </div>
+            </el-upload>
+            <div class="avatar-tips">支持 JPG / PNG / GIF / WebP, 大小不超过 2MB</div>
+          </div>
+        </el-form-item>
+
         <!-- 可编辑表单 -->
         <el-form :model="form" label-width="100px" class="edit-form">
           <el-row :gutter="16">
@@ -47,11 +73,6 @@
             <el-col :span="12">
               <el-form-item label="邮箱">
                 <el-input v-model="form.email" placeholder="请输入企业邮箱" />
-              </el-form-item>
-            </el-col>
-            <el-col :span="12">
-              <el-form-item label="头像/Logo">
-                <el-input v-model="form.avatar_url" placeholder="企业 Logo 链接 (选填)" />
               </el-form-item>
             </el-col>
           </el-row>
@@ -102,14 +123,19 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { Plus, Loading } from '@element-plus/icons-vue'
 import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
 import { useUserStore } from '@/stores/user'
 import { authApi } from '@/api/auth'
+import { vipApi } from '@/api/vip'
 
+const router = useRouter()
 const userStore = useUserStore()
 const loading = ref(false)
 const saving = ref(false)
+const avatarUploading = ref(false)
 const pwdDialogRef = ref<InstanceType<typeof ChangePasswordDialog>>()
 
 const onPasswordChanged = () => {
@@ -136,6 +162,47 @@ const roleText = computed(() => ({
   ROLE_EMPLOYER: '企业用户',
   ROLE_ADMIN: '管理员',
 }[form.role] || '未知'))
+
+const avatarFullUrl = computed(() => {
+  if (!form.avatar_url) return ''
+  return form.avatar_url.startsWith('http') ? form.avatar_url : window.location.origin + form.avatar_url
+})
+
+// 头像上传前校验
+const beforeAvatarUpload = (file: File) => {
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+  if (!allowedTypes.includes(file.type)) {
+    ElMessage.error('仅支持 JPG / PNG / GIF / WebP 格式')
+    return false
+  }
+  if (file.size > 2 * 1024 * 1024) {
+    ElMessage.error('图片大小不能超过 2MB')
+    return false
+  }
+  return true
+}
+
+// 自定义上传
+const handleAvatarUpload = async (options: any) => {
+  const file = options.file as File
+  avatarUploading.value = true
+  try {
+    const res: any = await authApi.uploadAvatar(file)
+    const url = res.data?.avatar_url
+    if (url) {
+      form.avatar_url = url
+      // 同步到 userStore, 其他页面立即生效
+      if (userStore.userInfo) {
+        userStore.setUserInfo({ ...userStore.userInfo, avatar_url: url })
+      }
+      ElMessage.success('头像上传成功')
+    }
+  } catch (e: any) {
+    ElMessage.error(e?.message || '头像上传失败')
+  } finally {
+    avatarUploading.value = false
+  }
+}
 
 const fetchInfo = async () => {
   loading.value = true
@@ -209,4 +276,30 @@ onMounted(() => { fetchInfo(); fetchVipInfo() })
 .vip-status { display: flex; align-items: center; gap: 10px; }
 .vip-plan { font-size: 13px; color: var(--text-secondary); }
 .vip-quota { font-size: 13px; color: var(--text-secondary); display: flex; gap: 16px; }
+
+.avatar-upload-wrap { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.avatar-uploader { width: 100px; height: 100px; }
+.avatar-uploader :deep(.el-upload) {
+  width: 100px; height: 100px; border-radius: 50%; border: 2px dashed #d9d9d9;
+  overflow: hidden; cursor: pointer; transition: border-color 0.2s; position: relative;
+  display: flex; align-items: center; justify-content: center;
+}
+.avatar-uploader :deep(.el-upload:hover) { border-color: #1677ff; }
+.avatar-preview { width: 100%; height: 100%; position: relative; border-radius: 50%; overflow: hidden; }
+.avatar-img { width: 100%; height: 100%; object-fit: cover; }
+.avatar-overlay {
+  position: absolute; bottom: 0; left: 0; right: 0; height: 24px;
+  background: rgba(0,0,0,0.5); color: #fff; font-size: 11px;
+  display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.2s;
+}
+.avatar-preview:hover .avatar-overlay { opacity: 1; }
+.avatar-placeholder {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  color: #999; font-size: 12px;
+}
+.avatar-loading {
+  position: absolute; inset: 0; background: rgba(255,255,255,0.8); border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; color: #1677ff;
+}
+.avatar-tips { font-size: 11px; color: #999; }
 </style>

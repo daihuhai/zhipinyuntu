@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { messageApi } from '@/api/message'
@@ -8,6 +8,12 @@ import { useRealtime } from '@/composables/useRealtime'
 
 const router = useRouter()
 const userStore = useUserStore()
+
+const avatarUrl = computed(() => {
+  const url = userStore.userInfo?.avatar_url
+  if (!url) return ''
+  return url.startsWith('http') ? url : window.location.origin + url
+})
 const realtime = useRealtime()
 const collapsed = ref(false)
 const unreadCount = ref(0)
@@ -72,7 +78,7 @@ onUnmounted(() => {
   <el-container class="layout">
     <el-aside :width="collapsed ? '64px' : '220px'" class="sidebar">
       <div class="logo">
-        <img src="@/assets/logo.png" class="logo-img" alt="智聘云图" />
+        <img src="@/assets/logo.png" class="logo-img" alt="智聘云图" loading="lazy" />
         <span v-if="!collapsed">智聘云图</span>
       </div>
       <el-menu
@@ -111,7 +117,7 @@ onUnmounted(() => {
           <span v-else class="normal-tag" @click="router.push('/seeker/vip')">普通用户</span>
           <el-dropdown>
             <span class="user-info">
-              <el-avatar :size="32">{{ userStore.userInfo?.nickname?.[0] || 'U' }}</el-avatar>
+              <el-avatar :size="32" :src="avatarUrl || undefined">{{ userStore.userInfo?.nickname?.[0] || 'U' }}</el-avatar>
               <span class="username">{{ userStore.userInfo?.nickname }}</span>
               <el-icon><ArrowDown /></el-icon>
             </span>

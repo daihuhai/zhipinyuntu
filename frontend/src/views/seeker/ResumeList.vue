@@ -118,7 +118,7 @@
                   提升建议
                 </div>
                 <div v-for="(s, i) in competeResult.suggestions" :key="i" class="suggestion-card">
-                  <span class="suggestion-dot">{{ i + 1 }}</span>
+                  <span class="suggestion-dot">{{ Number(i) + 1 }}</span>
                   <span>{{ s }}</span>
                 </div>
               </div>

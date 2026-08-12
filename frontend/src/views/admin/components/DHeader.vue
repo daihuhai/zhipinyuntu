@@ -1,7 +1,7 @@
 <template>
   <div class="dc-header">
     <div class="header-left">
-      <img src="@/assets/logo.png" class="header-logo" alt="智聘云图" />
+      <img src="@/assets/logo.png" class="header-logo" alt="智聘云图" loading="lazy" />
       <h1 class="header-title">智聘云图 · 数据指挥中心</h1>
     </div>
     <div class="header-center">

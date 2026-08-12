@@ -9,6 +9,7 @@ import { ElMessage } from 'element-plus'
 import App from './App.vue'
 import router from './router'
 import './style.css'
+import lazyDirective from './directives/lazy'
 
 const app = createApp(App)
 
@@ -32,6 +33,9 @@ window.addEventListener('unhandledrejection', (event) => {
 app.use(createPinia())
 app.use(router)
 app.use(ElementPlus, { locale: zhCn })
+
+// 注册全局自定义指令
+app.directive('lazy', lazyDirective)
 
 app.mount('#app')
 
