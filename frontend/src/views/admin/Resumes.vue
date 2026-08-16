@@ -94,7 +94,7 @@
             >
               <div class="exp-card">
                 <div class="exp-company">{{ w.company || '-' }} · {{ w.position || w.title || '-' }}</div>
-                <div v-if="w.description" class="exp-desc">{{ w.description }}</div>
+                <div v-if="w.description" class="exp-desc">{{ splitDesc(w.description) }}</div>
               </div>
             </el-timeline-item>
           </el-timeline>
@@ -110,7 +110,7 @@
             >
               <div class="exp-card">
                 <div class="exp-company">{{ p.name || p.title || '-' }} · {{ p.role || '-' }}</div>
-                <div v-if="p.description" class="exp-desc">{{ p.description }}</div>
+                <div v-if="p.description" class="exp-desc">{{ splitDesc(p.description) }}</div>
               </div>
             </el-timeline-item>
           </el-timeline>
@@ -120,12 +120,19 @@
           <div v-if="currentDetail.self_evaluation" class="eval-text">{{ currentDetail.self_evaluation }}</div>
 
           <!-- 技能列表 -->
-          <div v-if="currentDetail.skills?.length" class="section-title" style="margin-top:20px">技能列表</div>
-          <div v-if="currentDetail.skills?.length" class="skills-row">
+          <div v-if="currentDetail.skills?.length" class="section-title skills-title-row" style="margin-top:20px">
+            <span>技能列表</span>
+            <el-radio-group v-model="skillViewMode" size="small">
+              <el-radio-button value="list">列表</el-radio-button>
+              <el-radio-button value="cloud">词云</el-radio-button>
+            </el-radio-group>
+          </div>
+          <div v-if="currentDetail.skills?.length && skillViewMode === 'list'" class="skills-row">
             <el-tag v-for="sk in currentDetail.skills" :key="sk.id" :type="levelTagType(sk.skill_level)" size="small">
               {{ sk.skill_name }} · {{ sk.skill_level || '掌握' }}
             </el-tag>
           </div>
+          <SkillWordCloud v-if="currentDetail.skills?.length && skillViewMode === 'cloud'" :skills="currentDetail.skills" />
 
           <!-- 查看原文件 -->
           <div class="file-section">
@@ -145,6 +152,16 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Document, Download } from '@element-plus/icons-vue'
 import { adminApi } from '@/api/admin'
 import { resumeApi } from '@/api/resume'
+import SkillWordCloud from '@/components/SkillWordCloud.vue'
+
+// 技能展示模式: list=标签列表, cloud=词云
+const skillViewMode = ref<'list' | 'cloud'>('list')
+
+// 经历描述按序号 (1. 2. 3. ...) 自动换行展示
+const splitDesc = (desc?: string) => {
+  if (!desc) return ''
+  return desc.replace(/(\d+[\.、])(?!\d)/g, '\n$1').replace(/^\n/, '').trim()
+}
 
 const list = ref<any[]>([])
 const loading = ref(false)
@@ -303,8 +320,9 @@ onMounted(fetchList)
 .info-value { color: #333; }
 .exp-card { padding: 8px 12px; background: #f9fafc; border-radius: 6px; }
 .exp-company { font-size: 13px; font-weight: 600; color: #333; }
-.exp-desc { font-size: 12px; color: #666; margin-top: 4px; line-height: 1.5; }
+.exp-desc { font-size: 12px; color: #666; margin-top: 4px; line-height: 1.6; white-space: pre-line; }
 .eval-text { font-size: 13px; color: #666; line-height: 1.6; padding: 10px; background: #fafafa; border-radius: 6px; }
 .skills-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.skills-title-row { display: flex; align-items: center; justify-content: space-between; }
 .file-section { margin-top: 24px; text-align: center; padding-top: 16px; border-top: 1px solid #f0f0f0; }
 </style>

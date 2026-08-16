@@ -35,7 +35,7 @@ def register(req: RegisterRequest, db: Session) -> dict:
     stmt = select(SysUser).where(
         or_(SysUser.username == req.username, SysUser.phone == req.phone)
     )
-    existing = db.execute(stmt).scalar_one_or_none()
+    existing = db.execute(stmt).scalars().first()
     if existing:
         if existing.username == req.username:
             raise AuthException(BizError.USER_EXISTS, "用户名已存在")
@@ -43,7 +43,7 @@ def register(req: RegisterRequest, db: Session) -> dict:
 
     # email 唯一性 (若提供)
     if req.email:
-        if db.execute(select(SysUser).where(SysUser.email == req.email)).scalar_one_or_none():
+        if db.execute(select(SysUser).where(SysUser.email == req.email)).scalars().first():
             raise AuthException(BizError.USER_EXISTS, "邮箱已注册")
 
     # 企业用户必填校验
@@ -87,7 +87,7 @@ def login(account: str, password: str, db: Session) -> dict:
             SysUser.email == account,
         )
     )
-    user = db.execute(stmt).scalar_one_or_none()
+    user = db.execute(stmt).scalars().first()
 
     if user is None:
         raise AuthException(BizError.USER_NOT_FOUND, "账号不存在")

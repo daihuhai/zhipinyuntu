@@ -18,7 +18,9 @@ from app.core.limiter import limiter
 from app.db.base import get_db
 from app.models.user import SysUser
 from app.schemas.common import success, fail, BizError
-from app.services.vip_service import vip_service, VIP_PLANS, SINGLE_PAY_PRICE
+from app.services.vip_service import (
+    vip_service, get_vip_plans, get_single_pay_price, get_free_quota_limit,
+)
 
 router = APIRouter(prefix="/vip", tags=["VIP 会员"])
 
@@ -52,8 +54,11 @@ async def get_quota(current_user: SysUser = Depends(get_current_user)):
 
 
 @router.get("/plans", summary="获取 VIP 套餐列表", response_model=None)
-async def get_plans():
-    """获取 VIP 套餐和单次付费价格"""
+async def get_plans(current_user: SysUser = Depends(get_current_user)):
+    """获取 VIP 套餐和单次付费价格 (按角色区分定价)"""
+    vip_plans = get_vip_plans(current_user.role)
+    single_price = get_single_pay_price(current_user.role)
+    free_limit = get_free_quota_limit(current_user.role)
     plans = [
         {
             "key": k,
@@ -63,13 +68,13 @@ async def get_plans():
             "duration_days": v["duration_days"],
             "desc": v["desc"],
         }
-        for k, v in VIP_PLANS.items()
+        for k, v in vip_plans.items()
     ]
     return success(data={
         "vip_plans": plans,
-        "single_pay_price": SINGLE_PAY_PRICE,
-        "single_pay_yuan": f"{SINGLE_PAY_PRICE/100:.2f}",
-        "free_quota_limit": 2,
+        "single_pay_price": single_price,
+        "single_pay_yuan": f"{single_price/100:.2f}",
+        "free_quota_limit": free_limit,
     })
 
 
@@ -89,7 +94,7 @@ async def recharge(
     3. 用户"完成支付"后调用 /vip/pay/confirm 确认
     4. 确认后 VIP 自动激活
     """
-    plan_info = VIP_PLANS[req.plan]
+    plan_info = get_vip_plans(current_user.role)[req.plan]
     order_id = f"VIP{datetime.utcnow().strftime('%Y%m%d%H%M%S')}{uuid.uuid4().hex[:6].upper()}"
 
     # 模拟支付链接
@@ -125,7 +130,7 @@ async def buy_single(
     db: Session = Depends(get_db),
 ):
     """购买单次付费额度 - 创建支付订单 (模拟微信/支付宝支付)"""
-    amount = SINGLE_PAY_PRICE * req.count
+    amount = get_single_pay_price(current_user.role) * req.count
     order_id = f"SGL{datetime.utcnow().strftime('%Y%m%d%H%M%S')}{uuid.uuid4().hex[:6].upper()}"
 
     pay_url = f"https://pay.mock.zhipinyuntu.com/order/{order_id}"

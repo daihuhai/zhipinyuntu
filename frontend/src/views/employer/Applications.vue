@@ -273,7 +273,7 @@
             >
               <div class="exp-card">
                 <div class="exp-company">{{ w.company || '-' }} · {{ w.position || w.title || '-' }}</div>
-                <div v-if="w.description" class="exp-desc">{{ w.description }}</div>
+                <div v-if="w.description" class="exp-desc">{{ splitDesc(w.description) }}</div>
               </div>
             </el-timeline-item>
           </el-timeline>
@@ -292,7 +292,7 @@
             >
               <div class="exp-card">
                 <div class="exp-company">{{ p.name || p.title || '-' }} · {{ p.role || '-' }}</div>
-                <div v-if="p.description" class="exp-desc">{{ p.description }}</div>
+                <div v-if="p.description" class="exp-desc">{{ splitDesc(p.description) }}</div>
               </div>
             </el-timeline-item>
           </el-timeline>
@@ -300,8 +300,14 @@
 
         <!-- 技能列表 -->
         <div v-if="currentDetail.resume?.skills?.length" class="skills-section">
-          <div class="section-title">技能列表</div>
-          <div class="skills-row">
+          <div class="section-title skills-title-row">
+            <span>技能列表</span>
+            <el-radio-group v-model="skillViewMode" size="small">
+              <el-radio-button value="list">列表</el-radio-button>
+              <el-radio-button value="cloud">词云</el-radio-button>
+            </el-radio-group>
+          </div>
+          <div v-if="skillViewMode === 'list'" class="skills-row">
             <el-tag
               v-for="sk in currentDetail.resume.skills"
               :key="sk.skill_name"
@@ -311,6 +317,7 @@
               {{ sk.skill_name }} · {{ sk.skill_level || '掌握' }}
             </el-tag>
           </div>
+          <SkillWordCloud v-else :skills="currentDetail.resume.skills" />
         </div>
 
         <!-- 求职信 -->
@@ -398,6 +405,16 @@ import { resumeApi } from '@/api/resume'
 import { interviewApi } from '@/api/interview'
 import { exportToExcel } from '@/utils/exportExcel'
 import SkeletonList from '@/components/SkeletonList.vue'
+import SkillWordCloud from '@/components/SkillWordCloud.vue'
+
+// 技能展示模式: list=标签列表, cloud=词云
+const skillViewMode = ref<'list' | 'cloud'>('list')
+
+// 经历描述按序号 (1. 2. 3. ...) 自动换行展示
+const splitDesc = (desc?: string) => {
+  if (!desc) return ''
+  return desc.replace(/(\d+[\.、])(?!\d)/g, '\n$1').replace(/^\n/, '').trim()
+}
 
 const route = useRoute()
 const router = useRouter()
@@ -953,9 +970,10 @@ onMounted(fetchJobs)
   border-left: 3px solid #1677ff;
 }
 .skills-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.skills-title-row { display: flex; align-items: center; justify-content: space-between; }
 .exp-card { padding: 8px 12px; background: #f9fafc; border-radius: 6px; }
 .exp-company { font-size: 13px; font-weight: 600; color: #333; }
-.exp-desc { font-size: 12px; color: #666; margin-top: 4px; line-height: 1.5; }
+.exp-desc { font-size: 12px; color: #666; margin-top: 4px; line-height: 1.6; white-space: pre-line; }
 
 .info-row {
   display: flex;

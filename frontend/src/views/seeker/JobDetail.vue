@@ -261,6 +261,7 @@ import { applicationApi } from '@/api/application'
 import { reviewApi } from '@/api/review'
 import { useUserStore } from '@/stores/user'
 import { formatSalary } from '@/utils/format'
+import QRCode from 'qrcode'
 
 const route = useRoute()
 const router = useRouter()
@@ -402,26 +403,14 @@ const initChart = async () => {
     if (chartInstance) chartInstance.dispose()
     chartInstance = echarts.init(chartRef.value)
 
-    // 转换节点: 中心职位节点蓝色大圆, 技能节点按 req_type 着色
-    const colorMust = '#f56c6c' // 必须 - 红
-    const colorOptional = '#e6a23c' // 优先 - 橙
+    // 转换节点: 中心职位节点蓝色大圆, 技能节点统一橙色 (与图例一致)
     const colorJob = '#409eff' // 职位 - 蓝
+    const colorSkill = '#e6a23c' // 技能要求 - 橙
 
     const chartNodes = nodes.map((n: any) => {
       const isJob = n.type === 'Job' || n.type === 'job' || n.labels?.includes('Job')
-      const reqType = String(n.props?.req_type || n.req_type || '')
-      let color = colorJob
-      let symbolSize = 60
-      if (!isJob) {
-        symbolSize = 36
-        if (reqType === '必须' || reqType === 'required' || reqType === '1') {
-          color = colorMust
-        } else if (reqType === '优先' || reqType === 'optional' || reqType === '2') {
-          color = colorOptional
-        } else {
-          color = '#909399'
-        }
-      }
+      const color = isJob ? colorJob : colorSkill
+      const symbolSize = isJob ? 60 : 36
       // 中心节点(职位)显示岗位名称, 而非内部 ID
       const nodeName = isJob ? (job.value?.title || n.props?.name || n.name || String(n.id))
                               : (n.props?.name || n.name || n.title || String(n.id))
@@ -475,8 +464,8 @@ const initChart = async () => {
             gravity: 0.1,
           },
           categories: [
-            { name: '职位' },
-            { name: '技能要求' },
+            { name: '职位', itemStyle: { color: '#409eff' } },
+            { name: '技能要求', itemStyle: { color: '#e6a23c' } },
           ],
           data: chartNodes,
           links: chartEdges,
@@ -571,46 +560,25 @@ const qrCanvasRef = ref<HTMLCanvasElement>()
 const openShareCard = async () => {
   shareVisible.value = true
   await nextTick()
-  // 生成简单二维码 (使用 Canvas 绘制简化版二维码图案)
-  drawSimpleQR()
+  // 生成真实二维码 (使用 qrcode 库)
+  drawQRCode()
 }
 
-const drawSimpleQR = () => {
+const drawQRCode = async () => {
   const canvas = qrCanvasRef.value
   if (!canvas) return
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return
-  const size = 80
-  canvas.width = size
-  canvas.height = size
-  ctx.fillStyle = '#fff'
-  ctx.fillRect(0, 0, size, size)
-  // 生成伪二维码图案 (确定性随机)
-  const seed = String(job.value?.id || 'default')
-  const cells = 10
-  const cellSize = size / cells
-  ctx.fillStyle = '#1a1a2e'
-  for (let i = 0; i < cells; i++) {
-    for (let j = 0; j < cells; j++) {
-      const hash = (seed.charCodeAt((i + j) % seed.length) + i * 31 + j * 17) % 100
-      if (hash > 50) {
-        ctx.fillRect(i * cellSize, j * cellSize, cellSize, cellSize)
-      }
-    }
+  // 二维码内容: 职位详情页 URL
+  const shareUrl = `${window.location.origin}/seeker/jobs/${job.value?.id || ''}`
+  try {
+    await QRCode.toCanvas(canvas, shareUrl, {
+      width: 100,
+      margin: 1,
+      color: { dark: '#1a1a2e', light: '#ffffff' },
+      errorCorrectionLevel: 'M',
+    })
+  } catch {
+    // 生成失败时静默处理
   }
-  // 三个定位角
-  const corners = [[0, 0], [cells - 3, 0], [0, cells - 3]]
-  corners.forEach(([cx, cy]) => {
-    ctx.fillStyle = '#fff'
-    ctx.fillRect(cx * cellSize, cy * cellSize, 3 * cellSize, 3 * cellSize)
-    ctx.fillStyle = '#1a1a2e'
-    ctx.fillRect(cx * cellSize, cy * cellSize, 3 * cellSize, cellSize)
-    ctx.fillRect(cx * cellSize, cy * cellSize, cellSize, 3 * cellSize)
-    ctx.fillRect((cx + 2) * cellSize, cy * cellSize, cellSize, 3 * cellSize)
-    ctx.fillRect(cx * cellSize, (cy + 2) * cellSize, 3 * cellSize, cellSize)
-    ctx.fillStyle = '#1a1a2e'
-    ctx.fillRect((cx + 1) * cellSize, (cy + 1) * cellSize, cellSize, cellSize)
-  })
 }
 
 const downloadShareCard = async () => {
@@ -848,8 +816,8 @@ onBeforeUnmount(() => {
 }
 .share-qr {
   display: block;
-  width: 80px;
-  height: 80px;
+  width: 100px;
+  height: 100px;
 }
 .share-cta-title {
   color: #fff;

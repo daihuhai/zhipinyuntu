@@ -35,6 +35,84 @@ EDU_WEIGHT = {"博士": 5, "硕士": 4, "本科": 3, "大专": 2, "专科": 2, "
 # 技能等级权重
 LEVEL_WEIGHT = {"精通": 1.0, "熟练": 0.8, "掌握": 0.6, "熟悉": 0.5, "了解": 0.4}
 
+# 主要城市经纬度 (用于城市距离打分)
+CITY_COORDS = {
+    "北京": (39.90, 116.40), "天津": (39.13, 117.20), "上海": (31.23, 121.47),
+    "重庆": (29.56, 106.55), "广州": (23.13, 113.26), "深圳": (22.54, 114.06),
+    "成都": (30.57, 104.07), "杭州": (30.27, 120.16), "南京": (32.06, 118.80),
+    "武汉": (30.59, 114.31), "西安": (34.34, 108.94), "苏州": (31.30, 120.62),
+    "郑州": (34.75, 113.63), "长沙": (28.23, 112.94), "青岛": (36.07, 120.38),
+    "大连": (38.91, 121.61), "宁波": (29.87, 121.55), "厦门": (24.48, 118.09),
+    "福州": (26.07, 119.30), "无锡": (31.49, 120.31), "合肥": (31.82, 117.23),
+    "济南": (36.65, 117.00), "沈阳": (41.80, 123.43), "哈尔滨": (45.80, 126.53),
+    "长春": (43.88, 125.32), "石家庄": (38.04, 114.51), "太原": (37.87, 112.55),
+    "南昌": (28.68, 115.86), "贵阳": (26.65, 106.63), "昆明": (25.04, 102.71),
+    "兰州": (36.06, 103.83), "南宁": (22.82, 108.32), "海口": (20.04, 110.35),
+    "珠海": (22.27, 113.58), "佛山": (23.02, 113.12), "东莞": (23.02, 113.75),
+    "常州": (31.81, 119.97), "烟台": (37.46, 121.44), "温州": (28.00, 120.67),
+    "绍兴": (30.03, 120.58), "嘉兴": (30.75, 120.76), "徐州": (34.26, 117.19),
+    "洛阳": (34.62, 112.45), "襄阳": (32.04, 112.14), "宜昌": (30.69, 111.29),
+    "绵阳": (31.47, 104.68), "镇江": (32.19, 119.45), "扬州": (32.39, 119.41),
+    "南通": (31.98, 120.89), "湖州": (30.89, 120.09), "金华": (29.08, 119.65),
+    "台州": (28.66, 121.42), "泉州": (24.87, 118.68), "中山": (22.52, 113.39),
+    "惠州": (23.11, 114.42), "唐山": (39.63, 118.18), "保定": (38.87, 115.47),
+    "廊坊": (39.54, 116.68), "潍坊": (36.71, 119.16), "淄博": (36.81, 118.05),
+    "威海": (37.51, 122.12), "临沂": (35.10, 118.36), "咸阳": (34.33, 108.71),
+    "株洲": (27.83, 113.13), "桂林": (25.28, 110.29), "三亚": (18.25, 109.51),
+    "乌鲁木齐": (43.83, 87.62), "银川": (38.49, 106.23), "西宁": (36.62, 101.78),
+    "拉萨": (29.65, 91.14), "呼和浩特": (40.84, 111.75), "包头": (40.66, 109.84),
+}
+
+
+def _norm_city(name: str) -> str:
+    """去掉 市/省 等后缀, 便于匹配坐标表"""
+    if not name:
+        return ""
+    s = str(name).strip()
+    for suffix in ("特别行政区", "自治区", "市", "省"):
+        if s.endswith(suffix) and len(s) > len(suffix):
+            s = s[: -len(suffix)]
+    return s
+
+
+def _haversine_km(a: tuple, b: tuple) -> float:
+    """两经纬度点之间的球面距离 (km)"""
+    lat1, lon1 = a
+    lat2, lon2 = b
+    r = 6371.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lon2 - lon1)
+    h = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(h))
+
+
+def _city_distance_score(city_a: str, city_b: str) -> float:
+    """按两城市距离打分: 同城 1.0, 隔壁市(<=150km) 0.9, 越远越低"""
+    ca, cb = _norm_city(city_a), _norm_city(city_b)
+    if not ca or not cb:
+        return 0.0
+    if ca == cb or ca in cb or cb in ca:
+        return 1.0
+    pa = CITY_COORDS.get(ca)
+    pb = CITY_COORDS.get(cb)
+    if not pa or not pb:
+        return 0.5  # 坐标表未收录的城市给中间分
+    d = _haversine_km(pa, pb)
+    if d <= 50:
+        return 1.0
+    if d <= 150:
+        return 0.9
+    if d <= 300:
+        return 0.8
+    if d <= 500:
+        return 0.7
+    if d <= 800:
+        return 0.6
+    if d <= 1200:
+        return 0.5
+    return 0.4
+
 # 精排并发数 (灵犀大模型)
 RERANK_MAX_WORKERS = 8
 # 精排候选数 (调用 LLM 的数量, 配合 ARK 并发限流与模型延迟)
@@ -192,10 +270,9 @@ class MatchService:
                 lower = nums[0]
                 return 1.0 if years >= lower else max(years / lower, 0.0)
             lower, upper = nums[0], nums[1]
-            if lower <= years <= upper:
+            # 经验越多越好: 达到下限即满分 (含超出上限)
+            if years >= lower:
                 return 1.0
-            if years > upper:
-                return max(1.0 - (years - upper) * 0.1, 0.5)
             return max(years / lower, 0.0)
         except Exception:
             return 0.5
@@ -216,21 +293,31 @@ class MatchService:
         return 1.0 if cand_score >= req_score else cand_score / req_score
 
     def _score_city(self, resume: Resume, job: Job) -> float:
-        """城市匹配度 [0,1]"""
+        """城市匹配度 [0,1]
+
+        - 职位未填城市: 1.0 (无城市限制, 视为完全匹配)
+        - 简历当前城市/意向城市包含职位城市: 1.0
+        - 其他城市: 按与职位城市的地理距离衰减打分 (隔壁市 0.9)
+        """
         if not job.work_city:
-            return 0.8
-        if resume.current_city and job.work_city in resume.current_city:
             return 1.0
-        # 检查意向城市
+
+        scores = []
+        # 当前城市 vs 职位城市
+        if resume.current_city:
+            scores.append(_city_distance_score(resume.current_city, job.work_city))
+        # 意向城市 vs 职位城市
         try:
             intentions = json.loads(resume.intention_cities or "[]")
             if isinstance(intentions, list):
                 for c in intentions:
-                    if job.work_city in str(c):
-                        return 1.0
+                    scores.append(_city_distance_score(str(c), job.work_city))
         except Exception:
             pass
-        return 0.3
+
+        if not scores:
+            return 0.5  # 简历无城市信息, 给中间分
+        return max(scores)
 
     def _score_salary(self, resume: Resume, job: Job) -> float:
         """薪资匹配度 [0,1]"""

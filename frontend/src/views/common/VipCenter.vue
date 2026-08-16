@@ -97,14 +97,14 @@
       <div class="section-title">
         <el-icon :size="18" color="#1677ff"><Coin /></el-icon>
         <span>单次付费购买</span>
-        <span class="section-hint">¥0.5 / 次, 永久有效, 适合偶尔使用</span>
+        <span class="section-hint">¥{{ singleUnitPrice }} / 次, 永久有效, 适合偶尔使用</span>
       </div>
       <el-card shadow="never" class="single-card">
         <div class="single-row">
           <div class="single-info">
             <span class="single-label">购买数量</span>
             <el-input-number v-model="singleCount" :min="1" :max="100" :step="1" />
-            <span class="single-price">合计: <span class="price">¥{{ (singleCount * 0.5).toFixed(2) }}</span></span>
+            <span class="single-price">合计: <span class="price">¥{{ (singleCount * singleUnitPrice).toFixed(2) }}</span></span>
           </div>
           <el-button type="primary" plain :icon="ShoppingCart" @click="handleBuySingle">购买单次</el-button>
         </div>
@@ -233,8 +233,11 @@ import {
   ChatDotRound, Money, CircleCheckFilled, Trophy, InfoFilled,
 } from '@element-plus/icons-vue'
 import { vipApi } from '@/api/vip'
+import { useUserStore } from '@/stores/user'
 
 const router = useRouter()
+const userStore = useUserStore()
+const isEmployer = computed(() => userStore.userInfo?.role === 'ROLE_EMPLOYER')
 
 // ===== 配额信息 =====
 const quotaLoading = ref(false)
@@ -259,19 +262,29 @@ const fetchQuota = async () => {
   }
 }
 
-// ===== 套餐定义 =====
-const plans = [
-  { id: 'monthly', name: '月卡', price: 29, original: 39, period: '月', desc: '适合短期求职', recommend: false },
-  { id: 'quarterly', name: '季卡', price: 79, original: 99, period: '季', desc: '求职高峰期推荐', recommend: true },
-  { id: 'yearly', name: '年卡', price: 299, original: 399, period: '年', desc: '全年畅享最划算', recommend: false },
-]
+// ===== 套餐定义 (从后端动态获取, 按角色区分定价) =====
+const defaultPlans = isEmployer.value
+  ? [
+      { id: 'monthly', name: '月卡', price: 99, original: 129, period: '月', desc: '适合短期招聘', recommend: false },
+      { id: 'quarterly', name: '季卡', price: 269, original: 297, period: '季', desc: '招聘高峰期推荐', recommend: true },
+      { id: 'yearly', name: '年卡', price: 899, original: 1087, period: '年', desc: '全年畅享最划算', recommend: false },
+    ]
+  : [
+      { id: 'monthly', name: '月卡', price: 29, original: 39, period: '月', desc: '适合短期求职', recommend: false },
+      { id: 'quarterly', name: '季卡', price: 79, original: 99, period: '季', desc: '求职高峰期推荐', recommend: true },
+      { id: 'yearly', name: '年卡', price: 299, original: 399, period: '年', desc: '全年畅享最划算', recommend: false },
+    ]
+const plans = ref(defaultPlans)
 const selectedPlan = ref('quarterly')
-const currentPlanName = computed(() => plans.find(p => p.id === selectedPlan.value)?.name || '')
+const currentPlanName = computed(() => plans.value.find(p => p.id === selectedPlan.value)?.name || '')
+
+// 单次购买单价 (元): 求职者 0.5, 企业 2
+const singleUnitPrice = ref(isEmployer.value ? 2 : 0.5)
 
 // 续费后到期时间预览
 const renewExpireDate = computed(() => {
   if (!quota.value.is_vip || !quota.value.vip_expire_at) return ''
-  const plan = plans.find(p => p.id === selectedPlan.value)
+  const plan = plans.value.find(p => p.id === selectedPlan.value)
   if (!plan) return ''
   const days = plan.id === 'monthly' ? 30 : plan.id === 'quarterly' ? 90 : 365
   const current = new Date(quota.value.vip_expire_at)
@@ -305,7 +318,7 @@ const handleRecharge = async () => {
   }
   paying.value = true
   try {
-    const plan = plans.find(p => p.id === selectedPlan.value)!
+    const plan = plans.value.find(p => p.id === selectedPlan.value)!
     const res: any = await vipApi.recharge({ plan: plan.id, pay_method: payMethod.value })
     currentOrderId.value = res.data?.order_id || ''
     payAmount.value = plan.price
@@ -323,7 +336,7 @@ const handleBuySingle = async () => {
   try {
     const res: any = await vipApi.buySingle({ count: singleCount.value, pay_method: payMethod.value })
     currentOrderId.value = res.data?.order_id || ''
-    payAmount.value = singleCount.value * 0.5
+    payAmount.value = singleCount.value * singleUnitPrice.value
     currentMode.value = 'single'
     payDialogVisible.value = true
   } catch {
@@ -352,17 +365,32 @@ const handlePayConfirm = async () => {
   }
 }
 
-// ===== 权益对比表 =====
-const benefitTable = [
-  { feature: '简历解析', normal: true, normalText: '3次/天', vip: true, vipText: '无限次' },
-  { feature: '灵犀智能匹配', normal: true, normalText: '5次/天', vip: true, vipText: '无限次' },
-  { feature: '简历能力图谱', normal: true, vip: true },
-  { feature: '灵犀简历优化建议', normal: false, vip: true },
-  { feature: '职位优先推荐', normal: false, vip: true },
-  { feature: '专属客服通道', normal: false, vip: true },
-  { feature: '数据导出', normal: false, vip: true },
-  { feature: '广告免打扰', normal: false, vip: true },
-]
+// ===== 权益对比表 (按角色区分免费次数和权益项) =====
+const benefitTable = computed(() => {
+  const freeCount = isEmployer.value ? '3次' : '2次'
+  if (isEmployer.value) {
+    return [
+      { feature: '简历解析', normal: true, normalText: freeCount, vip: true, vipText: '无限次' },
+      { feature: '灵犀智能匹配', normal: true, normalText: freeCount, vip: true, vipText: '无限次' },
+      { feature: 'AI 面试题生成', normal: false, vip: true },
+      { feature: 'AI 职位描述生成', normal: false, vip: true },
+      { feature: '候选人优先推荐', normal: false, vip: true },
+      { feature: '专属客服通道', normal: false, vip: true },
+      { feature: '数据导出', normal: false, vip: true },
+      { feature: '广告免打扰', normal: false, vip: true },
+    ]
+  }
+  return [
+    { feature: '简历解析', normal: true, normalText: freeCount, vip: true, vipText: '无限次' },
+    { feature: '灵犀智能匹配', normal: true, normalText: freeCount, vip: true, vipText: '无限次' },
+    { feature: '简历能力图谱', normal: false, vip: true },
+    { feature: '灵犀简历优化建议', normal: false, vip: true },
+    { feature: '职位优先推荐', normal: false, vip: true },
+    { feature: '专属客服通道', normal: false, vip: true },
+    { feature: '数据导出', normal: false, vip: true },
+    { feature: '广告免打扰', normal: false, vip: true },
+  ]
+})
 
 // ===== 工具函数 =====
 const planLabel = (type?: string) => {
@@ -393,7 +421,38 @@ const goBack = () => {
   router.push(fallback)
 }
 
-onMounted(fetchQuota)
+// 从后端获取套餐价格 (按角色区分)
+const fetchPlans = async () => {
+  try {
+    const res: any = await vipApi.getPlans()
+    const data = res.data
+    if (data?.vip_plans) {
+      const periodMap: Record<string, string> = { monthly: '月', quarterly: '季', yearly: '年' }
+      plans.value = data.vip_plans.map((p: any) => {
+        const defaultPlan = defaultPlans.find(d => d.id === p.key)
+        return {
+          id: p.key,
+          name: p.name.replace(' VIP', ''),
+          price: Number(p.price_yuan),
+          original: defaultPlan?.original || 0,
+          period: periodMap[p.key] || '月',
+          desc: p.desc,
+          recommend: p.key === 'quarterly',
+        }
+      })
+    }
+    if (data?.single_pay_yuan) {
+      singleUnitPrice.value = Number(data.single_pay_yuan)
+    }
+  } catch {
+    // 使用默认值
+  }
+}
+
+onMounted(() => {
+  fetchQuota()
+  fetchPlans()
+})
 </script>
 
 <style scoped>

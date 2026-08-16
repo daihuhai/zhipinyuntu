@@ -185,14 +185,15 @@ const skillStats = computed(() => {
   ]
 })
 
-// 匹配度环形样式
+// 匹配度环形样式 (数字颜色与圆环同色, 白底保证可读性)
 const scoreStyle = computed(() => {
   const score = matchScore.value ?? 0
   const color = score >= 80 ? '#52c41a' : score >= 60 ? '#1677ff' : score >= 40 ? '#faad14' : '#ff4d4f'
   const deg = (score / 100) * 360
   return {
-    background: `conic-gradient(${color} ${deg}deg, rgba(255,255,255,0.08) ${deg}deg)`,
-  }
+    background: `conic-gradient(${color} ${deg}deg, rgba(255,255,255,0.15) ${deg}deg)`,
+    '--score-color': color,
+  } as any
 })
 
 const fetchResumes = async () => {
@@ -426,7 +427,7 @@ const fetchGraph = async () => {
         graphNodes.push({
           id: 'job',
           name: job.title || `职位#${job.id}`,
-          category: 2,
+          category: 3,
           symbolSize: 60,
           itemStyle: { color: '#ff6b35', shadowBlur: 30, shadowColor: 'rgba(255,107,53,0.8)' },
           label: { show: true, color: '#fff', fontSize: 14, fontWeight: 'bold' },
@@ -453,7 +454,7 @@ const fetchGraph = async () => {
           graphNodes.push({
             id: missId,
             name: skillName,
-            category: 3,
+            category: 4,
             symbolSize: 38,
             itemStyle: {
               color: '#ff4d4f', shadowBlur: 20, shadowColor: 'rgba(255,77,79,0.7)',
@@ -496,10 +497,11 @@ const renderGraph = () => {
   graphChart = echarts.init(graphRef.value, 'dark')
 
   const categories = [
-    { name: '求职者' },
-    { name: '已掌握技能' },
-    { name: '目标岗位' },
-    { name: '缺失技能' },
+    { name: '求职者', itemStyle: { color: '#a78bfa' } },
+    { name: '技能分类', itemStyle: { color: '#40a9ff' } },
+    { name: '已掌握技能', itemStyle: { color: '#95de64' } },
+    { name: '目标岗位', itemStyle: { color: '#ff6b35' } },
+    { name: '缺失技能', itemStyle: { color: '#ff4d4f' } },
   ]
 
   graphChart.setOption({
@@ -515,7 +517,7 @@ const renderGraph = () => {
       },
     },
     legend: {
-      data: categories.map(c => c.name),
+      data: ['求职者', '已掌握技能', '目标岗位', '缺失技能'],
       textStyle: { color: '#c4b5fd', fontSize: 12 },
       top: 10, left: 'center',
       itemGap: 20,
@@ -763,19 +765,20 @@ watch(jobId, () => {
 /* 匹配度环形 */
 .match-score { display: flex; flex-direction: column; align-items: center; gap: 4px; flex-shrink: 0; }
 .score-circle {
-  width: 80px; height: 80px; border-radius: 50%;
+  width: 110px; height: 110px; border-radius: 50%;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   position: relative;
+  box-shadow: 0 0 18px rgba(22, 119, 255, 0.35);
 }
 .score-circle::before {
   content: '';
-  position: absolute; inset: 6px;
+  position: absolute; inset: 8px;
   border-radius: 50%;
-  background: rgba(15, 12, 41, 0.85);
+  background: #ffffff;
 }
-.score-num { font-size: 28px; font-weight: 700; position: relative; z-index: 1; }
-.score-unit { font-size: 12px; position: relative; z-index: 1; opacity: 0.8; }
-.score-label { font-size: 12px; color: #c4b5fd; }
+.score-num { font-size: 34px; font-weight: 800; position: relative; z-index: 1; color: var(--score-color, #1677ff); line-height: 1.1; }
+.score-unit { font-size: 13px; position: relative; z-index: 1; color: var(--score-color, #1677ff); font-weight: 600; }
+.score-label { font-size: 13px; color: #c4b5fd; font-weight: 600; }
 
 .match-detail { flex: 1; display: flex; flex-direction: column; gap: 8px; }
 .detail-row { display: flex; align-items: flex-start; gap: 10px; }

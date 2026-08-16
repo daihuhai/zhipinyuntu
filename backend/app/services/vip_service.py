@@ -1,9 +1,9 @@
 """
 VIP 配额服务
-- 免费配额: 非 VIP 用户 2 次免费 (简历解析 + 智能匹配共用)
+- 免费配额: 求职者 2 次 / 企业 3 次 (简历解析 + 智能匹配共用)
 - VIP 用户: 无限次
-- 单次付费: 0.5 元/次, 支持微信/支付宝 (模拟支付)
-- VIP 充值: 月卡 29 元 / 季卡 79 元 / 年卡 299 元
+- 求职者: 单次 0.5 元, 月卡 29 / 季卡 79 / 年卡 299
+- 企业: 单次 2 元, 月卡 99 / 季卡 269 / 年卡 899
 """
 from datetime import datetime, timedelta
 from typing import Literal
@@ -13,18 +13,55 @@ from loguru import logger
 
 from app.models.user import SysUser
 
-# 免费配额上限
+# 免费配额上限 (按角色区分)
+FREE_QUOTA_LIMITS = {
+    "ROLE_SEEKER": 2,
+    "ROLE_EMPLOYER": 3,
+    "ROLE_ADMIN": 999,
+}
+# 默认免费配额 (兜底)
 FREE_QUOTA_LIMIT = 2
 
-# VIP 套餐配置 (价格单位: 分)
-VIP_PLANS = {
+# VIP 套餐配置 - 求职者 (价格单位: 分)
+VIP_PLANS_SEEKER = {
     "monthly": {"name": "月卡 VIP", "price": 2900, "duration_days": 30, "desc": "30 天无限次灵犀解析与匹配"},
     "quarterly": {"name": "季卡 VIP", "price": 7900, "duration_days": 90, "desc": "90 天无限次灵犀解析与匹配, 省 8 元"},
     "yearly": {"name": "年卡 VIP", "price": 29900, "duration_days": 365, "desc": "365 天无限次灵犀解析与匹配, 省 49 元"},
 }
 
+# VIP 套餐配置 - 企业 (价格更贵)
+VIP_PLANS_EMPLOYER = {
+    "monthly": {"name": "月卡 VIP", "price": 9900, "duration_days": 30, "desc": "30 天无限次灵犀解析与匹配"},
+    "quarterly": {"name": "季卡 VIP", "price": 26900, "duration_days": 90, "desc": "90 天无限次灵犀解析与匹配, 省 28 元"},
+    "yearly": {"name": "年卡 VIP", "price": 89900, "duration_days": 365, "desc": "365 天无限次灵犀解析与匹配, 省 188 元"},
+}
+
+# 兼容: 默认使用求职者套餐 (外部直接引用 VIP_PLANS 的地方)
+VIP_PLANS = VIP_PLANS_SEEKER
+
 # 单次付费 (单位: 分)
-SINGLE_PAY_PRICE = 50  # 0.5 元
+SINGLE_PAY_PRICE_SEEKER = 50   # 0.5 元
+SINGLE_PAY_PRICE_EMPLOYER = 200  # 2 元
+SINGLE_PAY_PRICE = 50  # 兼容默认
+
+
+def get_vip_plans(role: str) -> dict:
+    """根据角色获取 VIP 套餐配置"""
+    if role == "ROLE_EMPLOYER":
+        return VIP_PLANS_EMPLOYER
+    return VIP_PLANS_SEEKER
+
+
+def get_free_quota_limit(role: str) -> int:
+    """根据角色获取免费配额上限"""
+    return FREE_QUOTA_LIMITS.get(role, FREE_QUOTA_LIMIT)
+
+
+def get_single_pay_price(role: str) -> int:
+    """根据角色获取单次付费价格 (分)"""
+    if role == "ROLE_EMPLOYER":
+        return SINGLE_PAY_PRICE_EMPLOYER
+    return SINGLE_PAY_PRICE_SEEKER
 
 
 class QuotaExceededException(Exception):
@@ -42,7 +79,8 @@ class VipService:
     def get_quota_info(self, user: SysUser) -> dict:
         """获取用户配额信息"""
         is_vip = user.vip_active
-        remaining = 0 if is_vip else max(0, FREE_QUOTA_LIMIT - user.free_quota_used)
+        free_limit = get_free_quota_limit(user.role)
+        remaining = 0 if is_vip else max(0, free_limit - user.free_quota_used)
 
         # 计算剩余天数
         remaining_days = 0
@@ -55,7 +93,7 @@ class VipService:
             "vip_plan_type": user.vip_plan_type,
             "vip_expire_at": user.vip_expire_at.isoformat() if user.vip_expire_at else None,
             "vip_remaining_days": remaining_days,
-            "free_quota_limit": FREE_QUOTA_LIMIT,
+            "free_quota_limit": free_limit,
             "free_quota_used": user.free_quota_used,
             "free_quota_remaining": remaining,
             "paid_quota": user.paid_quota,
@@ -80,12 +118,13 @@ class VipService:
             logger.info(f"用户 {user.id} 消耗单次付费额度, 剩余 {user.paid_quota}, 操作: {action}")
             return
 
-        # 免费配额
-        if user.free_quota_used < FREE_QUOTA_LIMIT:
+        # 免费配额 (按角色区分上限)
+        free_limit = get_free_quota_limit(user.role)
+        if user.free_quota_used < free_limit:
             user.free_quota_used += 1
             db.commit()
-            remaining = FREE_QUOTA_LIMIT - user.free_quota_used
-            logger.info(f"用户 {user.id} 消耗免费配额, 已用 {user.free_quota_used}/{FREE_QUOTA_LIMIT}, 操作: {action}")
+            remaining = free_limit - user.free_quota_used
+            logger.info(f"用户 {user.id} 消耗免费配额, 已用 {user.free_quota_used}/{free_limit}, 操作: {action}")
             return
 
         # 配额用尽
@@ -103,10 +142,11 @@ class VipService:
         Returns:
             VIP 信息
         """
-        if plan not in VIP_PLANS:
+        vip_plans = get_vip_plans(user.role)
+        if plan not in vip_plans:
             raise ValueError(f"无效的 VIP 套餐: {plan}")
 
-        plan_info = VIP_PLANS[plan]
+        plan_info = vip_plans[plan]
         now = datetime.utcnow()
 
         # 如果已是 VIP 且未过期, 在原到期时间基础上延长
@@ -159,11 +199,12 @@ class VipService:
         """购买单次付费额度
 
         Args:
-            count: 购买次数 (默认 1 次, 0.5 元)
+            count: 购买次数 (默认 1 次)
             pay_method: wechat/alipay
         Returns:
             配额信息
         """
+        single_price = get_single_pay_price(user.role)
         user.paid_quota += count
         db.commit()
 
@@ -174,7 +215,7 @@ class VipService:
             from app.models.payment import PaymentRecord
             record = PaymentRecord(
                 user_id=user.id,
-                amount=SINGLE_PAY_PRICE * count,
+                amount=single_price * count,
                 pay_type="single_quota",
                 pay_method=pay_method,
                 status="success",
@@ -193,7 +234,7 @@ class VipService:
                 action="SINGLE_PAY_PURCHASE",
                 target_type="user",
                 target_id=user.id,
-                detail=f"用户购买单次配额 {count} 次, 价格 {count * SINGLE_PAY_PRICE / 100:.2f} 元",
+                detail=f"用户购买单次配额 {count} 次, 价格 {count * single_price / 100:.2f} 元",
             )
         except Exception:
             pass
